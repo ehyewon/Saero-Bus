@@ -15,12 +15,16 @@ import {
 } from './RecentPlacesSection';
 import { DepartureResult } from './DepartureResult';
 import { saveActiveTrip, clearActiveTrip, loadActiveTrip } from '../lib/activeTrip';
+import { searchPlaces, type PlaceSearchResult } from '../lib/placeSearch';
 
 interface HomePageProps {
   onBack?: () => void;
 }
 
 type Mode = 'arrive' | 'depart';
+type SearchField = 'origin' | 'destination';
+
+const DEFAULT_ORIGIN = '덕진구 금암동';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -49,7 +53,11 @@ function loadPinnedFavorite(): RecentPlace | null {
 }
 
 export function HomePage({ onBack }: HomePageProps = {}) {
+  const [origin, setOrigin] = useState(DEFAULT_ORIGIN);
   const [destination, setDestination] = useState('');
+  const [activeSearchField, setActiveSearchField] = useState<SearchField | null>(null);
+  const [suggestions, setSuggestions] = useState<PlaceSearchResult[]>([]);
+  const [isSearchingPlaces, setIsSearchingPlaces] = useState(false);
   const [mode, setMode] = useState<Mode>('arrive');
   const [time, setTime] = useState('09:00');
   const [showResults, setShowResults] = useState(false);
@@ -62,6 +70,7 @@ export function HomePage({ onBack }: HomePageProps = {}) {
     // Restore in-progress trip so returning to this screen shows the result again
     const trip = loadActiveTrip();
     if (trip) {
+      setOrigin(trip.origin || DEFAULT_ORIGIN);
       setDestination(trip.destination);
       setTime(trip.arrivalTime);
       setShowResults(true);
@@ -69,17 +78,57 @@ export function HomePage({ onBack }: HomePageProps = {}) {
   }, []);
 
   const canSubmit = destination.trim().length > 0;
+  const activeSearchValue = activeSearchField === 'origin' ? origin : destination;
+
+  useEffect(() => {
+    let alive = true;
+    const q = activeSearchValue.trim();
+    if (!activeSearchField || q.length < 2) {
+      setSuggestions([]);
+      setIsSearchingPlaces(false);
+      return () => {
+        alive = false;
+      };
+    }
+
+    setIsSearchingPlaces(true);
+    const timer = window.setTimeout(() => {
+      searchPlaces(q).then((results) => {
+        if (!alive) return;
+        setSuggestions(results);
+        setIsSearchingPlaces(false);
+      });
+    }, 250);
+
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [activeSearchField, activeSearchValue]);
 
   const handleSubmit = () => {
     if (!canSubmit) return;
     pushRecentPlace({ name: destination, address: destination });
     setRecents(loadRecentPlaces());
-    saveActiveTrip({ destination, arrivalTime: time });
+    saveActiveTrip({ origin: origin.trim() || DEFAULT_ORIGIN, destination, arrivalTime: time });
     setShowResults(true);
   };
 
   const pickRecent = (place: RecentPlace) => {
     setDestination(place.address);
+  };
+
+  const pickPlace = (place: PlaceSearchResult) => {
+    const value = place.name;
+    if (activeSearchField === 'origin') {
+      setOrigin(value);
+      setActiveSearchField(null);
+      return;
+    }
+    setDestination(value);
+    pushRecentPlace({ name: place.name, address: place.address });
+    setRecents(loadRecentPlaces());
+    setActiveSearchField(null);
   };
 
   const list = useMemo(() => {
@@ -94,6 +143,7 @@ export function HomePage({ onBack }: HomePageProps = {}) {
   const endTrip = () => {
     clearActiveTrip();
     setShowResults(false);
+    setOrigin(DEFAULT_ORIGIN);
     setDestination('');
     window.dispatchEvent(new CustomEvent('showToast', { detail: '안내를 종료합니다.' }));
   };
@@ -101,6 +151,7 @@ export function HomePage({ onBack }: HomePageProps = {}) {
   if (showResults) {
     return (
       <DepartureResult
+        origin={origin.trim() || DEFAULT_ORIGIN}
         destination={destination}
         arrivalTime={time}
         onBack={onBack ?? (() => setShowResults(false))}
@@ -111,6 +162,7 @@ export function HomePage({ onBack }: HomePageProps = {}) {
         onEnd={endTrip}
         onSelectQuickPlace={(label) => {
           clearActiveTrip();
+          setOrigin(DEFAULT_ORIGIN);
           setDestination(label);
           setShowResults(false);
         }}
@@ -139,7 +191,17 @@ export function HomePage({ onBack }: HomePageProps = {}) {
           <div className="card-grad rounded-3xl p-4 shadow-md">
             <div className="flex items-center gap-3 py-2">
               <Adjust className="text-gray-700" />
-              <span className="text-sm text-gray-800 truncate">현재 위치 · 덕진구 금암동</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-semibold text-gray-400 leading-none mb-1">현재 위치</p>
+                <input
+                  type="text"
+                  value={origin}
+                  onChange={(e) => setOrigin(e.target.value)}
+                  onFocus={() => setActiveSearchField('origin')}
+                  placeholder="출발지를 입력하세요"
+                  className="w-full outline-none text-sm bg-transparent min-w-0 placeholder:text-gray-400"
+                />
+              </div>
             </div>
             <div className="h-px bg-gray-100" />
             <div className="flex items-center gap-3 py-2">
@@ -148,11 +210,38 @@ export function HomePage({ onBack }: HomePageProps = {}) {
                 type="text"
                 value={destination}
                 onChange={(e) => setDestination(e.target.value)}
+                onFocus={() => setActiveSearchField('destination')}
                 placeholder="목적지를 입력하세요"
                 className="flex-1 outline-none text-sm bg-transparent min-w-0 placeholder:text-gray-400"
               />
               <Search className="text-gray-400" />
             </div>
+            {activeSearchField && (suggestions.length > 0 || isSearchingPlaces) && (
+              <div className="mt-2 rounded-2xl bg-white border border-gray-100 shadow-sm overflow-hidden">
+                <div className="px-4 py-2 text-[11px] font-bold text-gray-400">
+                  {isSearchingPlaces ? '지도에서 검색 중' : activeSearchField === 'origin' ? '출발지 후보' : '목적지 후보'}
+                </div>
+                <div className="divide-y divide-gray-100">
+                  {suggestions.map((place) => (
+                    <button
+                      key={place.id}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => pickPlace(place)}
+                      className="w-full px-4 py-3 flex items-start gap-3 text-left"
+                    >
+                      <div className="mt-0.5 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700 shrink-0">
+                        {place.category}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-bold text-gray-900 truncate">{place.name}</p>
+                        <p className="text-xs text-gray-500 truncate">{place.address}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

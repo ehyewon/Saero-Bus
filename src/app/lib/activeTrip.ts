@@ -2,6 +2,7 @@
 // Persisted in localStorage so the hub can show a live trip card after search.
 
 export interface ActiveTrip {
+  origin?: string;
   destination: string;
   arrivalTime: string; // "HH:mm"
   createdAt: number;
