@@ -6,6 +6,11 @@ import {
   LocationOn,
   Search,
   CheckCircle,
+  Work,
+  MenuBook,
+  MoreHoriz,
+  NotificationsActive,
+  MyLocation,
 } from '@mui/icons-material';
 
 /** localStorage keys — bump the suffix if the onboarding flow changes materially. */
@@ -34,15 +39,26 @@ function markOnboardingSeen() {
 
 interface SavedPlaces {
   nickname: string;
+  purpose: TravelPurpose;
   home: RegisteredPlace | null;
   frequent: RegisteredPlace | null;
   arrivalTime: string;
+  notificationEnabled: boolean;
+  locationEnabled: boolean;
 }
 
 function savePlaces(places: SavedPlaces) {
   try {
     localStorage.setItem(PLACES_KEY, JSON.stringify(places));
-    localStorage.setItem(PROFILE_KEY, JSON.stringify({ nickname: places.nickname }));
+    localStorage.setItem(
+      PROFILE_KEY,
+      JSON.stringify({
+        nickname: places.nickname,
+        purpose: places.purpose,
+        notificationEnabled: places.notificationEnabled,
+        locationEnabled: places.locationEnabled,
+      })
+    );
     const favorites = [
       places.home && {
         id: 'onboarding-home',
@@ -172,8 +188,21 @@ const TIME_OPTIONS: string[] = (() => {
   return out;
 })();
 
-const ONBOARDING_STEPS = ['nickname', 'places'] as const;
+const ONBOARDING_STEPS = ['nickname', 'purpose', 'places', 'arrivalTime', 'permissions', 'summary'] as const;
 type OnboardingStep = (typeof ONBOARDING_STEPS)[number];
+type TravelPurpose = 'school' | 'work' | 'academy' | 'other';
+
+const PURPOSE_OPTIONS: Array<{
+  id: TravelPurpose;
+  label: string;
+  description: string;
+  Icon: typeof School;
+}> = [
+  { id: 'school', label: '학교', description: '등하교 시간에 맞춰 안내', Icon: School },
+  { id: 'work', label: '회사', description: '출퇴근 루틴 중심 안내', Icon: Work },
+  { id: 'academy', label: '학원', description: '정해진 수업 시간에 맞춰 안내', Icon: MenuBook },
+  { id: 'other', label: '기타', description: '자주 가는 일정 중심 안내', Icon: MoreHoriz },
+];
 
 function sanitizeNickname(value: string) {
   return value.replace(/[^A-Za-z가-힣\s]/g, '').replace(/\s{2,}/g, ' ').slice(0, 16);
@@ -188,24 +217,48 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   const [step, setStep] = useState<OnboardingStep>('nickname');
   const [nickname, setNickname] = useState('');
   const [isComposingNickname, setIsComposingNickname] = useState(false);
+  const [purpose, setPurpose] = useState<TravelPurpose | null>(null);
   const [home, setHome] = useState<RegisteredPlace | null>(null);
   const [frequent, setFrequent] = useState<RegisteredPlace | null>(null);
   const [arrivalTime, setArrivalTime] = useState('오전 9:00');
+  const [notificationEnabled, setNotificationEnabled] = useState(true);
+  const [locationEnabled, setLocationEnabled] = useState(true);
   const activeStepIndex = ONBOARDING_STEPS.indexOf(step);
   const trimmedNickname = nickname.trim();
-  const canGoNext = trimmedNickname.length > 0;
-  const canStart = Boolean(home && frequent);
+  const selectedPurpose = PURPOSE_OPTIONS.find((item) => item.id === purpose);
+  const canGoNext =
+    (step === 'nickname' && trimmedNickname.length > 0) ||
+    (step === 'purpose' && Boolean(purpose)) ||
+    step === 'places' ||
+    step === 'arrivalTime' ||
+    step === 'permissions' ||
+    step === 'summary';
 
   const finish = (save: boolean) => {
-    if (save) savePlaces({ nickname: trimmedNickname, home, frequent, arrivalTime });
+    if (save) {
+      savePlaces({
+        nickname: trimmedNickname,
+        purpose: purpose ?? 'other',
+        home,
+        frequent,
+        arrivalTime,
+        notificationEnabled,
+        locationEnabled,
+      });
+    }
     markOnboardingSeen();
     onComplete();
   };
 
   const goNext = () => {
-    if (step === 'nickname' && canGoNext) {
-      setStep('places');
-    }
+    if (!canGoNext) return;
+    const nextIndex = Math.min(activeStepIndex + 1, ONBOARDING_STEPS.length - 1);
+    setStep(ONBOARDING_STEPS[nextIndex]);
+  };
+
+  const goBack = () => {
+    const prevIndex = Math.max(activeStepIndex - 1, 0);
+    setStep(ONBOARDING_STEPS[prevIndex]);
   };
 
   return (
@@ -231,7 +284,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
           </button>
         </div>
 
-        {step === 'nickname' ? (
+        {step === 'nickname' && (
           <>
             <h1 className="mt-8 text-[28px] leading-[1.3] font-extrabold text-gray-900">
               어떻게<br />불러드릴까요?
@@ -269,7 +322,44 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               </div>
             </div>
           </>
-        ) : (
+        )}
+
+        {step === 'purpose' && (
+          <>
+            <h1 className="mt-8 text-[28px] leading-[1.3] font-extrabold text-gray-900">
+              주로 어디에<br />가시나요?
+            </h1>
+            <p className="mt-3 text-[15px] leading-relaxed text-gray-500">
+              이동 목적에 맞춰<br />출발 안내를 조정할게요.
+            </p>
+
+            <div className="mt-8 grid grid-cols-2 gap-3">
+              {PURPOSE_OPTIONS.map(({ id, label, description, Icon }) => {
+                const selected = purpose === id;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setPurpose(id)}
+                    className={`min-h-[128px] rounded-2xl border bg-white p-4 text-left transition-colors ${
+                      selected ? 'border-[#4A7CA8] ring-2 ring-[#4A7CA8]/20' : 'border-gray-200'
+                    }`}
+                  >
+                    <div className={`mb-3 flex h-10 w-10 items-center justify-center rounded-xl ${
+                      selected ? 'bg-[#4A7CA8] text-white' : 'bg-[#EAF1F6] text-[#4A7CA8]'
+                    }`}>
+                      <Icon sx={{ fontSize: 23 }} />
+                    </div>
+                    <p className="font-extrabold text-gray-900">{label}</p>
+                    <p className="mt-1 text-xs leading-snug text-gray-500">{description}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        {step === 'places' && (
           <>
             <h1 className="mt-8 text-[28px] leading-[1.3] font-extrabold text-gray-900">
               자주 가는 곳을<br />알려주세요
@@ -294,16 +384,25 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                 onSelect={setFrequent}
               />
             </div>
+          </>
+        )}
 
-            <div className="mt-6 flex items-center justify-between gap-3 min-w-0">
-              <span className="min-w-0 text-[15px] text-gray-600">
-                보통 도착 시각 <span className="text-gray-400">(선택)</span>
-              </span>
-              <div className="relative shrink-0">
+        {step === 'arrivalTime' && (
+          <>
+            <h1 className="mt-8 text-[28px] leading-[1.3] font-extrabold text-gray-900">
+              몇 시까지<br />도착해야 하나요?
+            </h1>
+            <p className="mt-3 text-[15px] leading-relaxed text-gray-500">
+              평소 도착 시간을 기준으로<br />출발 시각을 추천할게요.
+            </p>
+
+            <div className="mt-8 rounded-2xl border border-gray-200 bg-white px-5 py-5">
+              <p className="text-xs text-gray-500">보통 도착 시각</p>
+              <div className="relative mt-3">
                 <select
                   value={arrivalTime}
                   onChange={(e) => setArrivalTime(e.target.value)}
-                  className="appearance-none bg-transparent pr-7 text-lg font-bold text-gray-900 text-right focus:outline-none cursor-pointer"
+                  className="w-full appearance-none bg-transparent pr-8 text-[28px] font-extrabold text-gray-900 focus:outline-none cursor-pointer"
                   aria-label="보통 도착 시각"
                 >
                   {TIME_OPTIONS.map((t) => (
@@ -319,35 +418,125 @@ export function Onboarding({ onComplete }: OnboardingProps) {
           </>
         )}
 
+        {step === 'permissions' && (
+          <>
+            <h1 className="mt-8 text-[28px] leading-[1.3] font-extrabold text-gray-900">
+              필요한 알림을<br />준비할게요
+            </h1>
+            <p className="mt-3 text-[15px] leading-relaxed text-gray-500">
+              출발 전 알림과 위치 기반 안내를<br />원하는 대로 켜둘 수 있어요.
+            </p>
+
+            <div className="mt-8 space-y-3">
+              <ToggleRow
+                Icon={NotificationsActive}
+                title="출발 전 알림"
+                description="놓치지 않도록 출발 시간을 알려드려요"
+                checked={notificationEnabled}
+                onChange={setNotificationEnabled}
+              />
+              <ToggleRow
+                Icon={MyLocation}
+                title="위치 기반 정류장 안내"
+                description="현재 위치에서 가까운 정류장을 찾을 때 사용해요"
+                checked={locationEnabled}
+                onChange={setLocationEnabled}
+              />
+            </div>
+          </>
+        )}
+
+        {step === 'summary' && (
+          <>
+            <h1 className="mt-8 text-[28px] leading-[1.3] font-extrabold text-gray-900">
+              이대로<br />시작할까요?
+            </h1>
+            <p className="mt-3 text-[15px] leading-relaxed text-gray-500">
+              입력한 설정은 나중에<br />언제든 다시 바꿀 수 있어요.
+            </p>
+
+            <div className="mt-8 space-y-3">
+              <SummaryRow label="별명" value={trimmedNickname || '미설정'} />
+              <SummaryRow label="목적" value={selectedPurpose?.label ?? '기타'} />
+              <SummaryRow label="집" value={home?.address ?? '나중에 등록'} />
+              <SummaryRow label="자주 가는 곳" value={frequent?.address ?? '나중에 등록'} />
+              <SummaryRow label="도착 시각" value={arrivalTime} />
+              <SummaryRow
+                label="알림"
+                value={`${notificationEnabled ? '출발 알림 켬' : '출발 알림 끔'} · ${
+                  locationEnabled ? '위치 안내 켬' : '위치 안내 끔'
+                }`}
+              />
+            </div>
+          </>
+        )}
+
         <div className="flex-1 min-h-8" />
 
-        {step === 'nickname' ? (
-          <button
-            type="button"
-            onClick={goNext}
-            disabled={!canGoNext}
-            className="mt-2 w-full rounded-2xl py-4 text-base font-extrabold text-white bg-[#4A7CA8] shadow-md active:scale-[0.99] transition-transform disabled:bg-gray-300 disabled:shadow-none disabled:active:scale-100"
-          >
-            다음
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => finish(true)}
-            disabled={!canStart}
-            className="mt-2 w-full rounded-2xl py-4 text-base font-extrabold text-white bg-[#4A7CA8] shadow-md active:scale-[0.99] transition-transform disabled:bg-gray-300 disabled:shadow-none disabled:active:scale-100"
-          >
-            시작하기
-          </button>
-        )}
         <button
           type="button"
-          onClick={step === 'nickname' ? () => finish(false) : () => setStep('nickname')}
+          onClick={step === 'summary' ? () => finish(true) : goNext}
+          disabled={!canGoNext}
+          className="mt-2 w-full rounded-2xl py-4 text-base font-extrabold text-white bg-[#4A7CA8] shadow-md active:scale-[0.99] transition-transform disabled:bg-gray-300 disabled:shadow-none disabled:active:scale-100"
+        >
+          {step === 'summary' ? '시작하기' : '다음'}
+        </button>
+        <button
+          type="button"
+          onClick={step === 'nickname' ? () => finish(false) : goBack}
           className="mt-3 w-full py-2 text-sm font-semibold text-gray-400"
         >
           {step === 'nickname' ? '나중에 설정할게요' : '이전'}
         </button>
       </div>
+    </div>
+  );
+}
+
+interface ToggleRowProps {
+  Icon: typeof NotificationsActive;
+  title: string;
+  description: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}
+
+function ToggleRow({ Icon, title, description, checked, onChange }: ToggleRowProps) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      className="flex w-full items-center gap-4 rounded-2xl border border-gray-200 bg-white px-5 py-4 text-left"
+    >
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#EAF1F6] text-[#4A7CA8]">
+        <Icon sx={{ fontSize: 24 }} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="font-extrabold text-gray-900">{title}</p>
+        <p className="mt-0.5 text-xs leading-snug text-gray-500">{description}</p>
+      </div>
+      <span
+        className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${
+          checked ? 'bg-[#4A7CA8]' : 'bg-gray-300'
+        }`}
+      >
+        <span
+          className={`absolute top-1 h-5 w-5 rounded-full bg-white transition-transform ${
+            checked ? 'translate-x-6' : 'translate-x-1'
+          }`}
+        />
+      </span>
+    </button>
+  );
+}
+
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white px-5 py-4">
+      <p className="text-xs text-gray-500">{label}</p>
+      <p className="mt-1 line-clamp-2 text-base font-extrabold leading-snug text-gray-900">
+        {value}
+      </p>
     </div>
   );
 }
