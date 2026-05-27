@@ -187,6 +187,7 @@ interface OnboardingProps {
 export function Onboarding({ onComplete }: OnboardingProps) {
   const [step, setStep] = useState<OnboardingStep>('nickname');
   const [nickname, setNickname] = useState('');
+  const [isComposingNickname, setIsComposingNickname] = useState(false);
   const [home, setHome] = useState<RegisteredPlace | null>(null);
   const [frequent, setFrequent] = useState<RegisteredPlace | null>(null);
   const [arrivalTime, setArrivalTime] = useState('오전 9:00');
@@ -247,7 +248,15 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                 id="nickname"
                 type="text"
                 value={nickname}
-                onChange={(event) => setNickname(sanitizeNickname(event.target.value))}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setNickname(isComposingNickname ? value : sanitizeNickname(value));
+                }}
+                onCompositionStart={() => setIsComposingNickname(true)}
+                onCompositionEnd={(event) => {
+                  setIsComposingNickname(false);
+                  setNickname(sanitizeNickname(event.currentTarget.value));
+                }}
                 placeholder="예: 민지, Alex"
                 autoComplete="nickname"
                 className="mt-2 w-full bg-transparent text-[22px] font-extrabold text-gray-900 placeholder:text-gray-300 focus:outline-none"
