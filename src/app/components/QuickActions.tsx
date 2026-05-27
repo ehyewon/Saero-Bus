@@ -15,6 +15,8 @@ interface FavoritePlace {
   name: string;
   address: string;
   category: Category;
+  lat?: number;
+  lng?: number;
 }
 
 interface QuickActionsProps {
@@ -64,6 +66,8 @@ export function QuickActions({ isEditing = false }: QuickActionsProps) {
                 name: p.name as string,
                 address: typeof p.address === 'string' ? p.address : '',
                 category,
+                lat: typeof p.lat === 'number' ? p.lat : undefined,
+                lng: typeof p.lng === 'number' ? p.lng : undefined,
               };
             });
           setPlaces(migrated);
