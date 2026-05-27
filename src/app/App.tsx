@@ -3,11 +3,15 @@ import { RouteHub } from './components/RouteHub';
 import { BusPage } from './components/BusPage';
 import { MapPage } from './components/MapPage';
 import { AlarmPage } from './components/AlarmPage';
+import { Onboarding, hasCompletedOnboarding } from './components/Onboarding';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState(0);
   const [toast, setToast] = useState<string | null>(null);
   const [fadeOut, setFadeOut] = useState(false);
+  const [showOnboarding, setShowOnboarding] = useState(() =>
+    import.meta.env.DEV ? true : !hasCompletedOnboarding()
+  );
 
   useEffect(() => {
     const handleSwitchTab = (event: CustomEvent) => {
@@ -38,6 +42,10 @@ export default function App() {
       if (removeTimer) window.clearTimeout(removeTimer);
     };
   }, []);
+
+  if (showOnboarding) {
+    return <Onboarding onComplete={() => setShowOnboarding(false)} />;
+  }
 
   return (
     <div className="size-full bg-[#FAFAFA]">
