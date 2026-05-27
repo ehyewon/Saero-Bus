@@ -1,14 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowBack,
   Adjust,
   Place,
   Search,
-  AccessTime,
-  KeyboardArrowDown,
   History,
   Star,
 } from '@mui/icons-material';
+import { WheelTimePicker } from './WheelTimePicker';
 import {
   loadRecentPlaces,
   pushRecentPlace,
@@ -33,8 +32,6 @@ const formatKoreanTime = (hhmm: string) => {
   return `오늘 ${isPm ? '오후' : '오전'} ${h12}:${pad(m)}`;
 };
 
-const QUICK_TIMES = ['09:00', '09:30', '10:00'];
-
 // Pinned favorite (just an example; uses the same storage as QuickActions if present)
 function loadPinnedFavorite(): RecentPlace | null {
   try {
@@ -58,7 +55,6 @@ export function HomePage({ onBack }: HomePageProps = {}) {
   const [showResults, setShowResults] = useState(false);
   const [recents, setRecents] = useState<RecentPlace[]>([]);
   const [pinned, setPinned] = useState<RecentPlace | null>(null);
-  const nativeTimeRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setRecents(loadRecentPlaces());
@@ -86,18 +82,6 @@ export function HomePage({ onBack }: HomePageProps = {}) {
     setDestination(place.address);
   };
 
-  const openNativeTime = () => {
-    const el = nativeTimeRef.current;
-    if (!el) return;
-    // Newer Chrome supports showPicker(); falls back to focus otherwise.
-    if (typeof (el as any).showPicker === 'function') {
-      (el as any).showPicker();
-    } else {
-      el.focus();
-      el.click();
-    }
-  };
-
   const list = useMemo(() => {
     const items: Array<RecentPlace & { kind: 'recent' | 'fav' }> = recents.map((r) => ({
       ...r,
@@ -111,6 +95,7 @@ export function HomePage({ onBack }: HomePageProps = {}) {
     clearActiveTrip();
     setShowResults(false);
     setDestination('');
+    window.dispatchEvent(new CustomEvent('showToast', { detail: '안내를 종료합니다.' }));
   };
 
   if (showResults) {
@@ -201,52 +186,8 @@ export function HomePage({ onBack }: HomePageProps = {}) {
               </button>
             </div>
 
-            <button
-              type="button"
-              onClick={openNativeTime}
-              className="w-full flex items-center gap-3 py-2 text-left"
-            >
-              <AccessTime className="text-gray-800" sx={{ fontSize: 26 }} />
-              <span className="text-2xl font-extrabold text-gray-900 flex-1">
-                {formatKoreanTime(time)}
-              </span>
-              <KeyboardArrowDown className="text-gray-500" />
-            </button>
-            <input
-              ref={nativeTimeRef}
-              type="time"
-              value={time}
-              onChange={(e) => setTime(e.target.value)}
-              className="sr-only"
-              aria-label="시간 직접 선택"
-            />
-
-            <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
-              {QUICK_TIMES.map((t) => {
-                const active = t === time;
-                return (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => setTime(t)}
-                    className={`rounded-full px-4 py-1.5 text-sm font-semibold shrink-0 border transition-colors ${
-                      active
-                        ? 'bg-gray-900 text-white border-gray-900'
-                        : 'bg-white text-gray-700 border-gray-200'
-                    }`}
-                  >
-                    {t}
-                  </button>
-                );
-              })}
-              <button
-                type="button"
-                onClick={openNativeTime}
-                className="rounded-full px-4 py-1.5 text-sm font-semibold shrink-0 border bg-white text-gray-700 border-gray-200"
-              >
-                직접
-              </button>
-            </div>
+            <p className="text-xs text-gray-500 mb-2 text-center">{formatKoreanTime(time)}</p>
+            <WheelTimePicker value={time} onChange={setTime} />
           </div>
         </div>
 
@@ -258,7 +199,7 @@ export function HomePage({ onBack }: HomePageProps = {}) {
               최근 검색 기록이 없어요
             </div>
           ) : (
-            <div className="card-grad rounded-2xl shadow-md divide-y divide-gray-100">
+            <div className="card-grad rounded-2xl shadow-md divide-y divide-gray-100 overflow-y-auto" style={{ maxHeight: 5 * 64 }}>
               {list.map((item, i) => (
                 <button
                   key={`${item.kind}-${item.address}-${i}`}
@@ -282,16 +223,14 @@ export function HomePage({ onBack }: HomePageProps = {}) {
             </div>
           )}
         </div>
-      </div>
 
-      {/* Sticky CTA */}
-      <div className="fixed bottom-16 inset-x-0 z-30 pointer-events-none">
-        <div className="max-w-md mx-auto px-4 pb-3 pointer-events-auto">
+        {/* CTA — in-flow, right below the recent list */}
+        <div className="px-4 mt-4">
           <button
             type="button"
             onClick={handleSubmit}
             disabled={!canSubmit}
-            className="w-full rounded-2xl py-4 font-extrabold text-base text-white shadow-lg bg-emerald-700 flex items-center justify-center transition-opacity disabled:opacity-40"
+            className="w-full rounded-2xl py-4 font-extrabold text-base text-white shadow-md bg-emerald-700 flex items-center justify-center transition-opacity disabled:opacity-40"
           >
             경로 안내 시작
           </button>

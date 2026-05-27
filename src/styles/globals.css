@@ -6,3 +6,18 @@
     linear-gradient(135deg, #34D399 0%, #10B981 60%, #047857 100%) border-box;
   border: 2px solid transparent;
 }
+
+/* Hide the scrollbar (used by the iOS-style wheel picker columns). */
+.hide-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Toast entrance animation (referenced as animate-[fadeInUp_200ms_ease-out]). */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

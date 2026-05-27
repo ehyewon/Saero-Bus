@@ -130,6 +130,7 @@ export function RouteHub() {
             onClick={() => {
               clearActiveTrip();
               setUpcoming(null);
+              window.dispatchEvent(new CustomEvent('showToast', { detail: '안내를 종료합니다.' }));
             }}
             className="mt-4 w-full rounded-xl py-3 flex items-center justify-center gap-1.5 text-sm font-semibold text-gray-800 bg-white border-2 border-gray-500"
           >
