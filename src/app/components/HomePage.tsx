@@ -25,8 +25,6 @@ interface HomePageProps {
 type Mode = 'arrive' | 'depart';
 type SearchField = 'origin' | 'destination';
 
-const DEFAULT_ORIGIN = '덕진구 금암동';
-
 const pad = (n: number) => String(n).padStart(2, '0');
 
 const formatKoreanTime = (hhmm: string) => {
@@ -54,7 +52,7 @@ function loadPinnedFavorite(): RecentPlace | null {
 }
 
 export function HomePage({ onBack }: HomePageProps = {}) {
-  const [origin, setOrigin] = useState(DEFAULT_ORIGIN);
+  const [origin, setOrigin] = useState('');
   const [destination, setDestination] = useState('');
   const [pickingField, setPickingField] = useState<SearchField | null>(null);
   const [mode, setMode] = useState<Mode>('arrive');
@@ -69,7 +67,7 @@ export function HomePage({ onBack }: HomePageProps = {}) {
     // Restore in-progress trip so returning to this screen shows the result again
     const trip = loadActiveTrip();
     if (trip) {
-      setOrigin(trip.origin || DEFAULT_ORIGIN);
+      setOrigin(trip.origin || '');
       setDestination(trip.destination);
       setTime(trip.arrivalTime);
       setShowResults(true);
@@ -82,7 +80,7 @@ export function HomePage({ onBack }: HomePageProps = {}) {
     if (!canSubmit) return;
     pushRecentPlace({ name: destination, address: destination });
     setRecents(loadRecentPlaces());
-    saveActiveTrip({ origin: origin.trim() || DEFAULT_ORIGIN, destination, arrivalTime: time });
+    saveActiveTrip({ origin: origin.trim(), destination, arrivalTime: time });
     setShowResults(true);
   };
 
@@ -127,7 +125,7 @@ export function HomePage({ onBack }: HomePageProps = {}) {
   const endTrip = () => {
     clearActiveTrip();
     setShowResults(false);
-    setOrigin(DEFAULT_ORIGIN);
+    setOrigin('');
     setDestination('');
     window.dispatchEvent(new CustomEvent('showToast', { detail: '안내를 종료합니다.' }));
   };
@@ -135,7 +133,7 @@ export function HomePage({ onBack }: HomePageProps = {}) {
   if (showResults) {
     return (
       <DepartureResult
-        origin={origin.trim() || DEFAULT_ORIGIN}
+        origin={origin.trim() || '출발지 미설정'}
         destination={destination}
         arrivalTime={time}
         onBack={onBack ?? (() => setShowResults(false))}
@@ -146,7 +144,7 @@ export function HomePage({ onBack }: HomePageProps = {}) {
         onEnd={endTrip}
         onSelectQuickPlace={(label) => {
           clearActiveTrip();
-          setOrigin(DEFAULT_ORIGIN);
+          setOrigin('');
           setDestination(label);
           setShowResults(false);
         }}
@@ -187,22 +185,17 @@ export function HomePage({ onBack }: HomePageProps = {}) {
             <div className="flex items-center gap-3 py-2">
               <Adjust className="text-gray-700" />
               <div className="flex-1 min-w-0">
-                <p className="text-[11px] font-semibold text-gray-400 leading-none mb-1">현재 위치</p>
+                <p className="text-[11px] font-semibold text-gray-400 leading-none mb-1">출발지</p>
                 <button
                   type="button"
                   onClick={() => setPickingField('origin')}
-                  className="w-full text-left text-sm text-gray-900 truncate"
+                  className={`w-full text-left text-sm truncate ${
+                    origin ? 'text-gray-900' : 'text-gray-400'
+                  }`}
                 >
                   {origin || '출발지를 입력하세요'}
                 </button>
               </div>
-              <button
-                type="button"
-                onClick={() => pickManualPlace('origin', DEFAULT_ORIGIN)}
-                className="rounded-full bg-gray-100 px-3 py-1 text-[11px] font-bold text-gray-600"
-              >
-                현재
-              </button>
             </div>
             <div className="h-px bg-gray-100" />
             <div className="flex items-center gap-3 py-2">
