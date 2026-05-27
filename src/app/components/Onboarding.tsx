@@ -11,6 +11,7 @@ import {
 /** localStorage keys — bump the suffix if the onboarding flow changes materially. */
 export const ONBOARDING_KEY = 'saerobus.onboarded.v2';
 const PLACES_KEY = 'saerobus.places.v1';
+const PROFILE_KEY = 'saerobus.profile.v1';
 const FAVORITE_PLACES_KEY = 'favoritePlaces';
 
 /** True once the user has finished onboarding (so we can skip it on return). */
@@ -32,6 +33,7 @@ function markOnboardingSeen() {
 }
 
 interface SavedPlaces {
+  nickname: string;
   home: RegisteredPlace | null;
   frequent: RegisteredPlace | null;
   arrivalTime: string;
@@ -40,6 +42,7 @@ interface SavedPlaces {
 function savePlaces(places: SavedPlaces) {
   try {
     localStorage.setItem(PLACES_KEY, JSON.stringify(places));
+    localStorage.setItem(PROFILE_KEY, JSON.stringify({ nickname: places.nickname }));
     const favorites = [
       places.home && {
         id: 'onboarding-home',
@@ -169,31 +172,54 @@ const TIME_OPTIONS: string[] = (() => {
   return out;
 })();
 
+const ONBOARDING_STEPS = ['nickname', 'places'] as const;
+type OnboardingStep = (typeof ONBOARDING_STEPS)[number];
+
+function sanitizeNickname(value: string) {
+  return value.replace(/[^A-Za-z가-힣\s]/g, '').replace(/\s{2,}/g, ' ').slice(0, 16);
+}
+
 interface OnboardingProps {
   /** Called when the user finishes or skips onboarding. */
   onComplete: () => void;
 }
 
 export function Onboarding({ onComplete }: OnboardingProps) {
+  const [step, setStep] = useState<OnboardingStep>('nickname');
+  const [nickname, setNickname] = useState('');
   const [home, setHome] = useState<RegisteredPlace | null>(null);
   const [frequent, setFrequent] = useState<RegisteredPlace | null>(null);
   const [arrivalTime, setArrivalTime] = useState('오전 9:00');
+  const activeStepIndex = ONBOARDING_STEPS.indexOf(step);
+  const trimmedNickname = nickname.trim();
+  const canGoNext = trimmedNickname.length > 0;
   const canStart = Boolean(home && frequent);
 
   const finish = (save: boolean) => {
-    if (save) savePlaces({ home, frequent, arrivalTime });
+    if (save) savePlaces({ nickname: trimmedNickname, home, frequent, arrivalTime });
     markOnboardingSeen();
     onComplete();
   };
 
+  const goNext = () => {
+    if (step === 'nickname' && canGoNext) {
+      setStep('places');
+    }
+  };
+
   return (
-    <div className="size-full overflow-auto overflow-x-hidden bg-[#EAF1F6]">
+    <div className="fixed inset-0 overflow-auto overflow-x-hidden bg-[#EAF1F6]">
       <div className="w-full max-w-md mx-auto min-h-full box-border px-6 pt-5 pb-8 flex flex-col">
-        {/* Top bar: progress pills + skip */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
-            <span className="h-2 w-6 rounded-full bg-gray-300" />
-            <span className="h-2 w-6 rounded-full bg-[#4A7CA8]" />
+            {ONBOARDING_STEPS.map((item, index) => (
+              <span
+                key={item}
+                className={`h-2 rounded-full transition-all ${
+                  index === activeStepIndex ? 'w-6 bg-[#4A7CA8]' : 'w-2 bg-gray-300'
+                }`}
+              />
+            ))}
           </div>
           <button
             type="button"
@@ -204,73 +230,113 @@ export function Onboarding({ onComplete }: OnboardingProps) {
           </button>
         </div>
 
-        {/* Heading */}
-        <h1 className="mt-8 text-[28px] leading-[1.3] font-extrabold text-gray-900">
-          자주 가는 곳을<br />알려주세요
-        </h1>
-        <p className="mt-3 text-[15px] leading-relaxed text-gray-500">
-          다음부터 앱을 켜면 바로<br />출발 시각을 알려드릴 수 있어요.
-        </p>
+        {step === 'nickname' ? (
+          <>
+            <h1 className="mt-8 text-[28px] leading-[1.3] font-extrabold text-gray-900">
+              어떻게<br />불러드릴까요?
+            </h1>
+            <p className="mt-3 text-[15px] leading-relaxed text-gray-500">
+              앱에서 사용할 별명을<br />한글이나 영어로 입력해주세요.
+            </p>
 
-        {/* Place inputs */}
-        <div className="mt-8 space-y-3">
-          <AddressField
-            Icon={Home}
-            label="집"
-            placeholder="집 주소를 검색하세요"
-            selected={home}
-            onSelect={setHome}
-          />
-          <AddressField
-            Icon={School}
-            label="자주 가는 곳"
-            placeholder="학교 · 회사 등을 검색하세요"
-            selected={frequent}
-            onSelect={setFrequent}
-          />
-        </div>
+            <div className="mt-8 rounded-2xl bg-white border border-gray-200 px-5 py-4">
+              <label htmlFor="nickname" className="block text-xs text-gray-500">
+                별명
+              </label>
+              <input
+                id="nickname"
+                type="text"
+                value={nickname}
+                onChange={(event) => setNickname(sanitizeNickname(event.target.value))}
+                placeholder="예: 민지, Alex"
+                autoComplete="nickname"
+                className="mt-2 w-full bg-transparent text-[22px] font-extrabold text-gray-900 placeholder:text-gray-300 focus:outline-none"
+              />
+              <div className="mt-3 flex items-center justify-between gap-3 text-xs">
+                <span className="text-gray-400">한글, 영어만 입력할 수 있어요</span>
+                <span className={trimmedNickname.length > 0 ? 'text-[#4A7CA8]' : 'text-gray-300'}>
+                  {trimmedNickname.length}/16
+                </span>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
+            <h1 className="mt-8 text-[28px] leading-[1.3] font-extrabold text-gray-900">
+              자주 가는 곳을<br />알려주세요
+            </h1>
+            <p className="mt-3 text-[15px] leading-relaxed text-gray-500">
+              다음부터 앱을 켜면 바로<br />출발 시각을 알려드릴 수 있어요.
+            </p>
 
-        {/* Arrival time */}
-        <div className="mt-6 flex items-center justify-between gap-3 min-w-0">
-          <span className="min-w-0 text-[15px] text-gray-600">
-            보통 도착 시각 <span className="text-gray-400">(선택)</span>
-          </span>
-          <div className="relative shrink-0">
-            <select
-              value={arrivalTime}
-              onChange={(e) => setArrivalTime(e.target.value)}
-              className="appearance-none bg-transparent pr-7 text-lg font-bold text-gray-900 text-right focus:outline-none cursor-pointer"
-              aria-label="보통 도착 시각"
-            >
-              {TIME_OPTIONS.map((t) => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
-            <KeyboardArrowDown
-              className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none"
-              sx={{ fontSize: 22 }}
-            />
-          </div>
-        </div>
+            <div className="mt-8 space-y-3">
+              <AddressField
+                Icon={Home}
+                label="집"
+                placeholder="집 주소를 검색하세요"
+                selected={home}
+                onSelect={setHome}
+              />
+              <AddressField
+                Icon={School}
+                label="자주 가는 곳"
+                placeholder="학교 · 회사 등을 검색하세요"
+                selected={frequent}
+                onSelect={setFrequent}
+              />
+            </div>
 
-        {/* Spacer pushes actions toward the bottom on tall screens */}
+            <div className="mt-6 flex items-center justify-between gap-3 min-w-0">
+              <span className="min-w-0 text-[15px] text-gray-600">
+                보통 도착 시각 <span className="text-gray-400">(선택)</span>
+              </span>
+              <div className="relative shrink-0">
+                <select
+                  value={arrivalTime}
+                  onChange={(e) => setArrivalTime(e.target.value)}
+                  className="appearance-none bg-transparent pr-7 text-lg font-bold text-gray-900 text-right focus:outline-none cursor-pointer"
+                  aria-label="보통 도착 시각"
+                >
+                  {TIME_OPTIONS.map((t) => (
+                    <option key={t} value={t}>{t}</option>
+                  ))}
+                </select>
+                <KeyboardArrowDown
+                  className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none"
+                  sx={{ fontSize: 22 }}
+                />
+              </div>
+            </div>
+          </>
+        )}
+
         <div className="flex-1 min-h-8" />
 
-        {/* Primary action */}
+        {step === 'nickname' ? (
+          <button
+            type="button"
+            onClick={goNext}
+            disabled={!canGoNext}
+            className="mt-2 w-full rounded-2xl py-4 text-base font-extrabold text-white bg-[#4A7CA8] shadow-md active:scale-[0.99] transition-transform disabled:bg-gray-300 disabled:shadow-none disabled:active:scale-100"
+          >
+            다음
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => finish(true)}
+            disabled={!canStart}
+            className="mt-2 w-full rounded-2xl py-4 text-base font-extrabold text-white bg-[#4A7CA8] shadow-md active:scale-[0.99] transition-transform disabled:bg-gray-300 disabled:shadow-none disabled:active:scale-100"
+          >
+            시작하기
+          </button>
+        )}
         <button
           type="button"
-          onClick={() => finish(true)}
-          disabled={!canStart}
-          className="mt-2 w-full rounded-2xl py-4 text-base font-extrabold text-white bg-[#4A7CA8] shadow-md active:scale-[0.99] transition-transform disabled:bg-gray-300 disabled:shadow-none disabled:active:scale-100"
-        >
-          시작하기
-        </button>
-        <button
-          type="button"
-          onClick={() => finish(false)}
+          onClick={step === 'nickname' ? () => finish(false) : () => setStep('nickname')}
           className="mt-3 w-full py-2 text-sm font-semibold text-gray-400"
         >
-          나중에 설정할게요
+          {step === 'nickname' ? '나중에 설정할게요' : '이전'}
         </button>
       </div>
     </div>
