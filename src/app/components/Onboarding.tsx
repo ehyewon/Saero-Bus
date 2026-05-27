@@ -86,10 +86,74 @@ interface RegisteredPlace {
 }
 
 interface AddressCandidate {
-  place_id: number;
-  display_name: string;
-  lat: string;
-  lon: string;
+  id: string;
+  address: string;
+  roadAddress?: string;
+  jibunAddress?: string;
+  lat: number;
+  lng: number;
+}
+
+interface NaverGeocodeAddress {
+  roadAddress?: string;
+  jibunAddress?: string;
+  englishAddress?: string;
+  x: string;
+  y: string;
+}
+
+interface NaverMapOptions {
+  center: unknown;
+  zoom: number;
+}
+
+type NaverGeocodeCallback = (
+  status: string,
+  response: { v2?: { addresses?: NaverGeocodeAddress[] } }
+) => void;
+
+declare global {
+  interface Window {
+    naver?: {
+      maps: {
+        LatLng: new (lat: number, lng: number) => unknown;
+        Map: new (element: HTMLElement, options: NaverMapOptions) => unknown;
+        Marker: new (options: { position: unknown; map: unknown }) => unknown;
+        Service: {
+          Status: { OK: string };
+          geocode: (options: { query: string }, callback: NaverGeocodeCallback) => void;
+        };
+      };
+    };
+    __saerobusNaverMapsPromise?: Promise<void>;
+  }
+}
+
+const NAVER_MAPS_CLIENT_ID = import.meta.env.VITE_NAVER_MAPS_CLIENT_ID as
+  | string
+  | undefined;
+
+function loadNaverMaps(): Promise<void> {
+  if (window.naver?.maps?.Service) return Promise.resolve();
+  if (!NAVER_MAPS_CLIENT_ID) {
+    return Promise.reject(new Error('Missing Naver Maps client ID'));
+  }
+  if (window.__saerobusNaverMapsPromise) return window.__saerobusNaverMapsPromise;
+
+  window.__saerobusNaverMapsPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    const params = new URLSearchParams({
+      ncpKeyId: NAVER_MAPS_CLIENT_ID,
+      submodules: 'geocoder',
+    });
+    script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?${params.toString()}`;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Failed to load Naver Maps'));
+    document.head.appendChild(script);
+  });
+
+  return window.__saerobusNaverMapsPromise;
 }
 
 /** 30-minute time options, labelled in Korean (오전/오후). */
@@ -224,9 +288,17 @@ interface AddressFieldProps {
 function AddressField({ Icon, label, placeholder, selected, onSelect }: AddressFieldProps) {
   const [query, setQuery] = useState(selected?.address ?? '');
   const [results, setResults] = useState<AddressCandidate[]>([]);
-  const [status, setStatus] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [status, setStatus] = useState<'idle' | 'loading' | 'missing-key' | 'error'>(
+    NAVER_MAPS_CLIENT_ID ? 'idle' : 'missing-key'
+  );
 
   useEffect(() => {
+    if (!NAVER_MAPS_CLIENT_ID) {
+      setStatus('missing-key');
+      setResults([]);
+      return;
+    }
+
     if (selected?.address && selected.address === query) {
       setResults([]);
       setStatus('idle');
@@ -240,28 +312,37 @@ function AddressField({ Icon, label, placeholder, selected, onSelect }: AddressF
       return;
     }
 
-    const controller = new AbortController();
+    let cancelled = false;
     const timer = window.setTimeout(async () => {
       setStatus('loading');
       try {
-        const params = new URLSearchParams({
-          q: trimmed,
-          format: 'jsonv2',
-          addressdetails: '1',
-          limit: '5',
-          countrycodes: 'kr',
-          'accept-language': 'ko',
+        await loadNaverMaps();
+        window.naver?.maps.Service.geocode({ query: trimmed }, (geocodeStatus, response) => {
+          if (cancelled) return;
+          if (geocodeStatus !== window.naver?.maps.Service.Status.OK) {
+            setResults([]);
+            setStatus('error');
+            return;
+          }
+
+          const addresses = response.v2?.addresses ?? [];
+          setResults(
+            addresses.slice(0, 5).map((item, index) => {
+              const address = item.roadAddress || item.jibunAddress || item.englishAddress || trimmed;
+              return {
+                id: `${item.x}-${item.y}-${index}`,
+                address,
+                roadAddress: item.roadAddress,
+                jibunAddress: item.jibunAddress,
+                lat: Number(item.y),
+                lng: Number(item.x),
+              };
+            })
+          );
+          setStatus('idle');
         });
-        const response = await fetch(
-          `https://nominatim.openstreetmap.org/search?${params.toString()}`,
-          { signal: controller.signal }
-        );
-        if (!response.ok) throw new Error('Address search failed');
-        const data = (await response.json()) as AddressCandidate[];
-        setResults(data);
-        setStatus('idle');
       } catch (error) {
-        if (!controller.signal.aborted) {
+        if (!cancelled) {
           setStatus('error');
           setResults([]);
         }
@@ -269,16 +350,16 @@ function AddressField({ Icon, label, placeholder, selected, onSelect }: AddressF
     }, 350);
 
     return () => {
+      cancelled = true;
       window.clearTimeout(timer);
-      controller.abort();
     };
   }, [query, selected?.address]);
 
   const choose = (candidate: AddressCandidate) => {
     const place = {
-      address: candidate.display_name,
-      lat: Number(candidate.lat),
-      lng: Number(candidate.lon),
+      address: candidate.address,
+      lat: candidate.lat,
+      lng: candidate.lng,
     };
     setQuery(place.address);
     setResults([]);
@@ -324,6 +405,12 @@ function AddressField({ Icon, label, placeholder, selected, onSelect }: AddressF
         </div>
       )}
 
+      {status === 'missing-key' && (
+        <div className="border-t border-gray-100 px-5 py-3 text-sm text-amber-600">
+          네이버 지도 API 키가 필요해요
+        </div>
+      )}
+
       {status === 'error' && (
         <div className="border-t border-gray-100 px-5 py-3 text-sm text-red-500">
           주소 검색에 실패했어요
@@ -334,14 +421,21 @@ function AddressField({ Icon, label, placeholder, selected, onSelect }: AddressF
         <div className="border-t border-gray-100 divide-y divide-gray-100">
           {results.map((candidate) => (
             <button
-              key={candidate.place_id}
+              key={candidate.id}
               type="button"
               onClick={() => choose(candidate)}
               className="w-full flex items-start gap-3 px-5 py-3 text-left active:bg-gray-50"
             >
               <LocationOn className="mt-0.5 text-[#4A7CA8] shrink-0" sx={{ fontSize: 20 }} />
-              <span className="text-sm leading-snug text-gray-700 line-clamp-2">
-                {candidate.display_name}
+              <span className="min-w-0">
+                <span className="block text-sm leading-snug text-gray-700 line-clamp-2">
+                  {candidate.address}
+                </span>
+                {candidate.jibunAddress && candidate.jibunAddress !== candidate.address && (
+                  <span className="mt-0.5 block text-xs text-gray-400 line-clamp-1">
+                    {candidate.jibunAddress}
+                  </span>
+                )}
               </span>
             </button>
           ))}
@@ -351,14 +445,48 @@ function AddressField({ Icon, label, placeholder, selected, onSelect }: AddressF
       {selected && (
         <div className="border-t border-gray-100 px-5 py-3">
           <div className="h-24 overflow-hidden rounded-xl border border-gray-200 bg-gray-100">
-            <iframe
-              title={`${label} 지도`}
-              className="h-full w-full"
-              src={`https://www.openstreetmap.org/export/embed.html?bbox=${selected.lng - 0.006}%2C${selected.lat - 0.004}%2C${selected.lng + 0.006}%2C${selected.lat + 0.004}&layer=mapnik&marker=${selected.lat}%2C${selected.lng}`}
-            />
+            <NaverMiniMap place={selected} label={label} />
           </div>
         </div>
       )}
     </div>
   );
+}
+
+function NaverMiniMap({ place, label }: { place: RegisteredPlace; label: string }) {
+  const mapRef = useState<HTMLDivElement | null>(null);
+  const element = mapRef[0];
+  const setElement = mapRef[1];
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!element) return;
+    let cancelled = false;
+
+    loadNaverMaps()
+      .then(() => {
+        if (cancelled || !window.naver?.maps) return;
+        const position = new window.naver.maps.LatLng(place.lat, place.lng);
+        const map = new window.naver.maps.Map(element, {
+          center: position,
+          zoom: 16,
+        });
+        new window.naver.maps.Marker({ position, map });
+      })
+      .catch(() => setFailed(true));
+
+    return () => {
+      cancelled = true;
+    };
+  }, [element, place.lat, place.lng]);
+
+  if (!NAVER_MAPS_CLIENT_ID || failed) {
+    return (
+      <div className="flex h-full items-center justify-center px-4 text-center text-xs text-gray-500">
+        네이버 지도 미리보기를 표시할 수 없어요
+      </div>
+    );
+  }
+
+  return <div ref={setElement} aria-label={`${label} 네이버 지도`} className="h-full w-full" />;
 }
