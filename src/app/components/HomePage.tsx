@@ -15,7 +15,8 @@ import {
 } from './RecentPlacesSection';
 import { DepartureResult } from './DepartureResult';
 import { saveActiveTrip, clearActiveTrip, loadActiveTrip } from '../lib/activeTrip';
-import { searchPlaces, type PlaceSearchResult } from '../lib/placeSearch';
+import { type PlaceSearchResult } from '../lib/placeSearch';
+import { PlacePickerPage } from './PlacePickerPage';
 
 interface HomePageProps {
   onBack?: () => void;
@@ -55,9 +56,7 @@ function loadPinnedFavorite(): RecentPlace | null {
 export function HomePage({ onBack }: HomePageProps = {}) {
   const [origin, setOrigin] = useState(DEFAULT_ORIGIN);
   const [destination, setDestination] = useState('');
-  const [activeSearchField, setActiveSearchField] = useState<SearchField | null>(null);
-  const [suggestions, setSuggestions] = useState<PlaceSearchResult[]>([]);
-  const [isSearchingPlaces, setIsSearchingPlaces] = useState(false);
+  const [pickingField, setPickingField] = useState<SearchField | null>(null);
   const [mode, setMode] = useState<Mode>('arrive');
   const [time, setTime] = useState('09:00');
   const [showResults, setShowResults] = useState(false);
@@ -78,33 +77,6 @@ export function HomePage({ onBack }: HomePageProps = {}) {
   }, []);
 
   const canSubmit = destination.trim().length > 0;
-  const activeSearchValue = activeSearchField === 'origin' ? origin : destination;
-
-  useEffect(() => {
-    let alive = true;
-    const q = activeSearchValue.trim();
-    if (!activeSearchField || q.length < 2) {
-      setSuggestions([]);
-      setIsSearchingPlaces(false);
-      return () => {
-        alive = false;
-      };
-    }
-
-    setIsSearchingPlaces(true);
-    const timer = window.setTimeout(() => {
-      searchPlaces(q).then((results) => {
-        if (!alive) return;
-        setSuggestions(results);
-        setIsSearchingPlaces(false);
-      });
-    }, 250);
-
-    return () => {
-      alive = false;
-      window.clearTimeout(timer);
-    };
-  }, [activeSearchField, activeSearchValue]);
 
   const handleSubmit = () => {
     if (!canSubmit) return;
@@ -115,20 +87,32 @@ export function HomePage({ onBack }: HomePageProps = {}) {
   };
 
   const pickRecent = (place: RecentPlace) => {
-    setDestination(place.address);
+    setDestination(place.name || place.address);
   };
 
   const pickPlace = (place: PlaceSearchResult) => {
-    const value = place.name;
-    if (activeSearchField === 'origin') {
+    if (pickingField === 'origin') {
+      setOrigin(place.name);
+      setPickingField(null);
+      return;
+    }
+    setDestination(place.name);
+    pushRecentPlace({ name: place.name, address: place.address });
+    setRecents(loadRecentPlaces());
+    setPickingField(null);
+  };
+
+  const pickManualPlace = (field: SearchField, value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      setPickingField(field);
+      return;
+    }
+    if (field === 'origin') {
       setOrigin(value);
-      setActiveSearchField(null);
       return;
     }
     setDestination(value);
-    pushRecentPlace({ name: place.name, address: place.address });
-    setRecents(loadRecentPlaces());
-    setActiveSearchField(null);
   };
 
   const list = useMemo(() => {
@@ -170,6 +154,17 @@ export function HomePage({ onBack }: HomePageProps = {}) {
     );
   }
 
+  if (pickingField) {
+    return (
+      <PlacePickerPage
+        field={pickingField}
+        initialValue={pickingField === 'origin' ? origin : destination}
+        onCancel={() => setPickingField(null)}
+        onSelect={pickPlace}
+      />
+    );
+  }
+
   return (
     <div className="size-full overflow-auto bg-[#FAFAFA]">
       <div className="max-w-md mx-auto min-h-full pb-28">
@@ -193,55 +188,43 @@ export function HomePage({ onBack }: HomePageProps = {}) {
               <Adjust className="text-gray-700" />
               <div className="flex-1 min-w-0">
                 <p className="text-[11px] font-semibold text-gray-400 leading-none mb-1">현재 위치</p>
-                <input
-                  type="text"
-                  value={origin}
-                  onChange={(e) => setOrigin(e.target.value)}
-                  onFocus={() => setActiveSearchField('origin')}
-                  placeholder="출발지를 입력하세요"
-                  className="w-full outline-none text-sm bg-transparent min-w-0 placeholder:text-gray-400"
-                />
+                <button
+                  type="button"
+                  onClick={() => setPickingField('origin')}
+                  className="w-full text-left text-sm text-gray-900 truncate"
+                >
+                  {origin || '출발지를 입력하세요'}
+                </button>
               </div>
+              <button
+                type="button"
+                onClick={() => pickManualPlace('origin', DEFAULT_ORIGIN)}
+                className="rounded-full bg-gray-100 px-3 py-1 text-[11px] font-bold text-gray-600"
+              >
+                현재
+              </button>
             </div>
             <div className="h-px bg-gray-100" />
             <div className="flex items-center gap-3 py-2">
               <Place className="text-emerald-700" />
-              <input
-                type="text"
-                value={destination}
-                onChange={(e) => setDestination(e.target.value)}
-                onFocus={() => setActiveSearchField('destination')}
-                placeholder="목적지를 입력하세요"
-                className="flex-1 outline-none text-sm bg-transparent min-w-0 placeholder:text-gray-400"
-              />
-              <Search className="text-gray-400" />
+              <button
+                type="button"
+                onClick={() => setPickingField('destination')}
+                className={`flex-1 min-w-0 text-left text-sm truncate ${
+                  destination ? 'text-gray-900' : 'text-gray-400'
+                }`}
+              >
+                {destination || '목적지를 입력하세요'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPickingField('destination')}
+                className="text-gray-400"
+                aria-label="목적지 검색"
+              >
+                <Search />
+              </button>
             </div>
-            {activeSearchField && (suggestions.length > 0 || isSearchingPlaces) && (
-              <div className="mt-2 rounded-2xl bg-white border border-gray-100 shadow-sm overflow-hidden">
-                <div className="px-4 py-2 text-[11px] font-bold text-gray-400">
-                  {isSearchingPlaces ? '지도에서 검색 중' : activeSearchField === 'origin' ? '출발지 후보' : '목적지 후보'}
-                </div>
-                <div className="divide-y divide-gray-100">
-                  {suggestions.map((place) => (
-                    <button
-                      key={place.id}
-                      type="button"
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => pickPlace(place)}
-                      className="w-full px-4 py-3 flex items-start gap-3 text-left"
-                    >
-                      <div className="mt-0.5 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700 shrink-0">
-                        {place.category}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm font-bold text-gray-900 truncate">{place.name}</p>
-                        <p className="text-xs text-gray-500 truncate">{place.address}</p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         </div>
 

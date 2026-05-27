@@ -230,3 +230,37 @@ export async function searchPlaces(query: string, limit = 8): Promise<PlaceSearc
     })
     .slice(0, limit);
 }
+
+export async function reverseSearchPlace(lat: number, lon: number): Promise<PlaceSearchResult> {
+  const params = new URLSearchParams({
+    lat: String(lat),
+    lon: String(lon),
+    format: 'jsonv2',
+    addressdetails: '1',
+    namedetails: '1',
+    'accept-language': 'ko,en',
+  });
+
+  const response = await fetch(`https://nominatim.openstreetmap.org/reverse?${params.toString()}`);
+  if (!response.ok) {
+    return {
+      id: `picked-${lat}-${lon}`,
+      name: '지도에서 선택한 위치',
+      address: `${lat.toFixed(5)}, ${lon.toFixed(5)}`,
+      category: '장소',
+      lat,
+      lon,
+    };
+  }
+
+  const item = (await response.json()) as NominatimResult;
+  const name = nameFrom(item);
+  return {
+    id: `picked-${item.place_id ?? `${lat}-${lon}`}`,
+    name,
+    address: addressFrom(item, name),
+    category: categoryFrom(item),
+    lat,
+    lon,
+  };
+}
