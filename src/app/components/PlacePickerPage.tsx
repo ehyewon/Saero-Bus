@@ -107,6 +107,7 @@ interface NaverMapPanelProps {
   setMapReady: (value: boolean) => void;
   selectedMarkerRef: React.MutableRefObject<any>;
   resultMarkersRef: React.MutableRefObject<any[]>;
+  liveLocationMarkerRef: React.MutableRefObject<any>;
   naverRef: React.MutableRefObject<any>;
   naverMapRef: React.MutableRefObject<any>;
   debugOpen: boolean;
@@ -124,6 +125,7 @@ function NaverMapPanel({
   setMapReady,
   selectedMarkerRef,
   resultMarkersRef,
+  liveLocationMarkerRef,
   naverRef,
   naverMapRef,
   debugOpen,
@@ -132,10 +134,12 @@ function NaverMapPanel({
   const containerRef = useRef<HTMLDivElement>(null);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [liveLocationActive, setLiveLocationActive] = useState(false);
 
   useEffect(() => {
     let disposed = false;
     let clickListener: any = null;
+    let watchId: number | null = null;
 
     if (!getNaverMapKey()) {
       setFailed(true);
@@ -183,6 +187,41 @@ function NaverMapPanel({
             map,
           });
         });
+
+        if (navigator.geolocation) {
+          watchId = navigator.geolocation.watchPosition(
+            (position) => {
+              if (disposed) return;
+              const current = new naver.maps.LatLng(
+                position.coords.latitude,
+                position.coords.longitude,
+              );
+              if (!liveLocationMarkerRef.current) {
+                liveLocationMarkerRef.current = new naver.maps.Marker({
+                  position: current,
+                  map,
+                  icon: {
+                    content:
+                      '<div style="width:18px;height:18px;border-radius:999px;background:#2563eb;border:3px solid white;box-shadow:0 0 0 8px rgba(37,99,235,.18),0 3px 10px rgba(0,0,0,.25);"></div>',
+                    anchor: new naver.maps.Point(9, 9),
+                  },
+                  title: '내 현재 위치',
+                });
+              } else {
+                liveLocationMarkerRef.current.setPosition(current);
+              }
+              setLiveLocationActive(true);
+            },
+            () => {
+              setLiveLocationActive(false);
+            },
+            {
+              enableHighAccuracy: true,
+              maximumAge: 3000,
+              timeout: 10000,
+            },
+          );
+        }
       })
       .catch((error) => {
         setFailed(true);
@@ -196,10 +235,13 @@ function NaverMapPanel({
         naverRef.current.maps.Event.removeListener(clickListener);
       }
       if (selectedMarkerRef.current) selectedMarkerRef.current.setMap(null);
+      if (liveLocationMarkerRef.current) liveLocationMarkerRef.current.setMap(null);
       resultMarkersRef.current.forEach((marker) => marker.setMap(null));
       resultMarkersRef.current = [];
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
     };
   }, [
+    liveLocationMarkerRef,
     naverMapRef,
     naverRef,
     onSelect,
@@ -285,6 +327,12 @@ function NaverMapPanel({
           )}
         </>
       )}
+      {ready && (
+        <div className="absolute left-3 top-3 rounded-full bg-white/95 px-3 py-1.5 text-[11px] font-bold text-gray-700 shadow-sm">
+          <span className="inline-block w-2 h-2 rounded-full bg-blue-600 mr-1.5 align-middle" />
+          {liveLocationActive ? '내 위치 추적 중' : '내 위치 권한 필요'}
+        </div>
+      )}
     </div>
   );
 }
@@ -292,16 +340,19 @@ function NaverMapPanel({
 function reverseSearchWithNaver(naver: any, lat: number, lon: number): Promise<PlaceSearchResult> {
   return new Promise((resolve) => {
     const fallback = () =>
-      reverseSearchPlace(lat, lon).then(resolve).catch(() => {
-        resolve({
-          id: `picked-${lat}-${lon}`,
-          name: '지도에서 선택한 위치',
-          address: `${lat.toFixed(5)}, ${lon.toFixed(5)}`,
-          category: '장소',
-          lat,
-          lon,
+      reverseSearchPlace(lat, lon)
+        .then(resolve)
+        .catch(() => {
+          const name = '선택한 위치';
+          resolve({
+            id: `picked-${lat}-${lon}`,
+            name,
+            address: name,
+            category: '장소',
+            lat,
+            lon,
+          });
         });
-      });
 
     if (!naver?.maps?.Service?.reverseGeocode) {
       fallback();
@@ -325,17 +376,63 @@ function reverseSearchWithNaver(naver: any, lat: number, lon: number): Promise<P
         const address = response?.v2?.address;
         const roadAddress = address?.roadAddress || '';
         const jibunAddress = address?.jibunAddress || '';
-        const name = roadAddress.split(' ').slice(-2).join(' ') || jibunAddress.split(' ').slice(-2).join(' ');
+        const displayAddress = roadAddress || jibunAddress || `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+        if (!roadAddress && !jibunAddress) {
+          fallback();
+          return;
+        }
         resolve({
           id: `naver-picked-${lat}-${lon}`,
-          name: name || '지도에서 선택한 위치',
-          address: roadAddress || jibunAddress || `${lat.toFixed(5)}, ${lon.toFixed(5)}`,
+          name: displayAddress,
+          address: displayAddress,
+          roadAddress,
+          jibunAddress,
           category: roadAddress ? '도로명' : '지역',
           lat,
           lon,
         });
       },
     );
+  });
+}
+
+function searchPlacesWithNaver(naver: any, query: string): Promise<PlaceSearchResult[]> {
+  return new Promise((resolve) => {
+    if (!naver?.maps?.Service?.geocode) {
+      resolve([]);
+      return;
+    }
+
+    naver.maps.Service.geocode({ query }, (status: any, response: any) => {
+      if (status !== naver.maps.Service.Status.OK) {
+        resolve([]);
+        return;
+      }
+
+      const addresses = response?.v2?.addresses;
+      if (!Array.isArray(addresses)) {
+        resolve([]);
+        return;
+      }
+
+      resolve(
+        addresses.slice(0, 8).map((item: any, index: number) => {
+          const roadAddress = item.roadAddress || '';
+          const jibunAddress = item.jibunAddress || '';
+          const displayAddress = roadAddress || jibunAddress || item.englishAddress || query;
+          return {
+            id: `naver-search-${item.x}-${item.y}-${index}`,
+            name: displayAddress,
+            address: displayAddress,
+            roadAddress,
+            jibunAddress,
+            category: roadAddress ? '도로명' : '지역',
+            lat: Number(item.y),
+            lon: Number(item.x),
+          };
+        }),
+      );
+    });
   });
 }
 
@@ -348,6 +445,8 @@ export function PlacePickerPage({
   const [query, setQuery] = useState(initialValue);
   const [results, setResults] = useState<PlaceSearchResult[]>([]);
   const [selected, setSelected] = useState<PlaceSearchResult | null>(null);
+  const [selectionSource, setSelectionSource] = useState<'search' | 'map' | null>(null);
+  const [hasTypedQuery, setHasTypedQuery] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   const [pickedPoint, setPickedPoint] = useState<{ x: number; y: number } | null>(null);
   const [mapReady, setMapReady] = useState(false);
@@ -358,11 +457,19 @@ export function PlacePickerPage({
   const naverMapRef = useRef<any>(null);
   const selectedMarkerRef = useRef<any>(null);
   const resultMarkersRef = useRef<any[]>([]);
+  const liveLocationMarkerRef = useRef<any>(null);
 
   useEffect(() => {
     let alive = true;
     const q = query.trim();
-    if (q.length < 2) {
+    if (selectionSource === 'map') {
+      setResults(selected ? [selected] : []);
+      setIsSearching(false);
+      return () => {
+        alive = false;
+      };
+    }
+    if (q.length < 1) {
       setResults([]);
       setIsSearching(false);
       return () => {
@@ -372,7 +479,14 @@ export function PlacePickerPage({
 
     setIsSearching(true);
     const timer = window.setTimeout(() => {
-      searchPlaces(q).then((next) => {
+      const naver = naverRef.current;
+      const search = q.length >= 2 && naver
+        ? searchPlacesWithNaver(naver, q).then((naverResults) =>
+            naverResults.length > 0 ? naverResults : searchPlaces(q),
+          )
+        : searchPlaces(q);
+
+      search.then((next) => {
         if (!alive) return;
         setResults(next);
         setIsSearching(false);
@@ -383,7 +497,7 @@ export function PlacePickerPage({
       alive = false;
       window.clearTimeout(timer);
     };
-  }, [query]);
+  }, [mapReady, query, selected, selectionSource]);
 
   const mapMarkers = useMemo(() => {
     const withCoords = results.filter((place) => place.lat && place.lon);
@@ -392,9 +506,14 @@ export function PlacePickerPage({
 
   const title = field === 'origin' ? '현재 위치 설정' : '목적지 설정';
 
-  const selectPlace = (place: PlaceSearchResult) => {
+  const selectPlace = (place: PlaceSearchResult, source: 'search' | 'map' = 'search') => {
     setSelected(place);
+    setSelectionSource(source);
     setQuery(place.name);
+    setHasTypedQuery(false);
+    if (source === 'map') {
+      setResults([place]);
+    }
 
     const naver = naverRef.current;
     const map = naverMapRef.current;
@@ -410,9 +529,29 @@ export function PlacePickerPage({
     const point = coordFromClick(event.currentTarget.getBoundingClientRect(), event.clientX, event.clientY);
     setPickedPoint({ x: point.x, y: point.y });
     const place = await reverseSearchPlace(point.lat, point.lon);
-    setSelected(place);
-    setQuery(place.name);
+    selectPlace(place, 'map');
   };
+
+  const pickCurrentLocation = () => {
+    const naver = naverRef.current;
+    const map = naverMapRef.current;
+    if (naver && map) {
+      const current = liveLocationMarkerRef.current?.getPosition?.() || map.getCenter();
+      reverseSearchWithNaver(naver, current.lat(), current.lng()).then((place) =>
+        selectPlace(place, 'map'),
+      );
+      return;
+    }
+    selectPlace(FEATURED_PLACES[0], 'map');
+    setPickedPoint({ x: 50, y: 50 });
+  };
+
+  const visibleResults = selectionSource === 'map'
+    ? []
+    : results.length > 0
+      ? results
+      : [];
+  const showResultsPanel = selectionSource !== 'map' && hasTypedQuery && results.length > 0;
 
   const confirm = () => {
     if (selected) {
@@ -453,18 +592,63 @@ export function PlacePickerPage({
                 value={query}
                 onChange={(event) => {
                   setQuery(event.target.value);
+                  setHasTypedQuery(true);
                   setSelected(null);
+                  setSelectionSource(null);
                 }}
                 autoFocus
                 placeholder="장소명, 건물명, 주소 검색"
                 className="flex-1 min-w-0 outline-none bg-transparent text-sm placeholder:text-gray-400"
               />
+              <button
+                type="button"
+                onClick={pickCurrentLocation}
+                className="w-9 h-9 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-700 shrink-0"
+                aria-label="현위치로 설정"
+              >
+                <MyLocation sx={{ fontSize: 20 }} />
+              </button>
             </div>
+            {showResultsPanel && (
+              <div className="mt-2 rounded-2xl bg-white border border-gray-100 shadow-sm divide-y divide-gray-100 overflow-hidden">
+                <div className="px-4 py-2 text-[11px] font-bold text-gray-400">
+                  {isSearching ? '검색 중' : '검색 결과'}
+                </div>
+                {visibleResults.map((place) => {
+                  const active = selected?.id === place.id;
+                  return (
+                    <button
+                      key={place.id}
+                      type="button"
+                      onClick={() => selectPlace(place, 'search')}
+                      className="w-full px-4 py-3 flex items-start gap-3 text-left"
+                    >
+                      <div className="mt-0.5 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700 shrink-0">
+                        {place.category}
+                      </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-gray-900 truncate">{place.name}</p>
+                      {place.roadAddress && (
+                        <p className="text-xs text-gray-500 truncate">도로명 {place.roadAddress}</p>
+                      )}
+                      {place.jibunAddress && (
+                        <p className="text-xs text-gray-500 truncate">지번 {place.jibunAddress}</p>
+                      )}
+                      {!place.roadAddress && !place.jibunAddress && (
+                        <p className="text-xs text-gray-500 truncate">{place.address}</p>
+                      )}
+                    </div>
+                      {active && <Check className="text-emerald-700 shrink-0" sx={{ fontSize: 20 }} />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
             <div className="relative">
               <NaverMapPanel
                 markers={mapMarkers}
-                onSelect={selectPlace}
+                onSelect={(place) => selectPlace(place, 'map')}
                 onFallbackClick={handleFallbackMapClick}
                 pickedPoint={pickedPoint}
                 mapError={mapError}
@@ -473,6 +657,7 @@ export function PlacePickerPage({
                 setMapReady={setMapReady}
                 selectedMarkerRef={selectedMarkerRef}
                 resultMarkersRef={resultMarkersRef}
+                liveLocationMarkerRef={liveLocationMarkerRef}
                 naverRef={naverRef}
                 naverMapRef={naverMapRef}
                 debugOpen={debugOpen}
@@ -482,15 +667,7 @@ export function PlacePickerPage({
                 type="button"
                 onClick={(event) => {
                   event.stopPropagation();
-                  const naver = naverRef.current;
-                  const map = naverMapRef.current;
-                  if (naver && map) {
-                    const center = map.getCenter();
-                    reverseSearchWithNaver(naver, center.lat(), center.lng()).then(selectPlace);
-                    return;
-                  }
-                  selectPlace(FEATURED_PLACES[0]);
-                  setPickedPoint({ x: 50, y: 50 });
+                  pickCurrentLocation();
                 }}
                 className="absolute right-3 bottom-3 w-11 h-11 rounded-full bg-white shadow-md flex items-center justify-center text-emerald-700"
                 aria-label="현재 지도 중심으로"
@@ -502,46 +679,12 @@ export function PlacePickerPage({
             <p className="mt-2 text-xs text-gray-500">
               지도 위 장소를 누르거나 원하는 지점을 터치해서 설정할 수 있어요.
             </p>
-          </div>
-        </div>
 
-        <div className="px-4 mt-4">
-          <p className="text-sm font-bold text-gray-800 mb-2">
-            {isSearching ? '검색 중' : results.length > 0 ? '검색 결과' : '추천 장소'}
-          </p>
-          <div className="card-grad rounded-2xl shadow-md divide-y divide-gray-100 overflow-hidden">
-            {(results.length > 0 ? results : FEATURED_PLACES).map((place) => {
-              const active = selected?.id === place.id;
-              return (
-                <button
-                  key={place.id}
-                  type="button"
-                  onClick={() => {
-                    selectPlace(place);
-                  }}
-                  className="w-full px-4 py-3 flex items-start gap-3 text-left"
-                >
-                  <div className="mt-0.5 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700 shrink-0">
-                    {place.category}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-gray-900 truncate">{place.name}</p>
-                    <p className="text-xs text-gray-500 truncate">{place.address}</p>
-                  </div>
-                  {active && <Check className="text-emerald-700 shrink-0" sx={{ fontSize: 20 }} />}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="fixed bottom-16 inset-x-0 z-30 pointer-events-none">
-          <div className="max-w-md mx-auto px-4 pb-3 pointer-events-auto">
             <button
               type="button"
               onClick={confirm}
               disabled={!query.trim()}
-              className="w-full rounded-2xl py-4 font-extrabold text-base text-white shadow-md bg-emerald-700 flex items-center justify-center transition-opacity disabled:opacity-40"
+              className="mt-4 w-full rounded-2xl py-4 font-extrabold text-base text-white shadow-md bg-emerald-700 flex items-center justify-center transition-opacity disabled:opacity-40"
             >
               이 위치로 설정
             </button>

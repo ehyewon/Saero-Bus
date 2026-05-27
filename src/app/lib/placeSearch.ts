@@ -2,6 +2,8 @@ export interface PlaceSearchResult {
   id: string;
   name: string;
   address: string;
+  roadAddress?: string;
+  jibunAddress?: string;
   category: '장소' | '도로명' | '정류장' | '지역';
   keywords?: string[];
   lat?: number;
@@ -117,6 +119,39 @@ const PLACES: PlaceSearchResult[] = [
 ];
 
 const normalize = (value: string) => value.toLowerCase().replace(/\s+/g, '');
+const HANGUL_BASE = 0xac00;
+const HANGUL_LAST = 0xd7a3;
+const CHOSEONG = [
+  'ㄱ',
+  'ㄲ',
+  'ㄴ',
+  'ㄷ',
+  'ㄸ',
+  'ㄹ',
+  'ㅁ',
+  'ㅂ',
+  'ㅃ',
+  'ㅅ',
+  'ㅆ',
+  'ㅇ',
+  'ㅈ',
+  'ㅉ',
+  'ㅊ',
+  'ㅋ',
+  'ㅌ',
+  'ㅍ',
+  'ㅎ',
+];
+
+const toChoseong = (value: string) =>
+  value
+    .split('')
+    .map((char) => {
+      const code = char.charCodeAt(0);
+      if (code < HANGUL_BASE || code > HANGUL_LAST) return char;
+      return CHOSEONG[Math.floor((code - HANGUL_BASE) / 588)];
+    })
+    .join('');
 
 function searchLocalPlaces(query: string, limit = 4): PlaceSearchResult[] {
   const q = normalize(query);
@@ -125,7 +160,8 @@ function searchLocalPlaces(query: string, limit = 4): PlaceSearchResult[] {
   return PLACES
     .map((place) => {
       const haystack = normalize([place.name, place.address, place.category, ...(place.keywords ?? [])].join(' '));
-      if (!haystack.includes(q)) return null;
+      const choseongHaystack = normalize(toChoseong([place.name, place.address, ...(place.keywords ?? [])].join(' ')));
+      if (!haystack.includes(q) && !choseongHaystack.includes(q)) return null;
       const startsWithName = normalize(place.name).startsWith(q) ? 0 : 1;
       const startsWithKeyword = (place.keywords ?? []).some((keyword) => normalize(keyword).startsWith(q)) ? 0 : 1;
       return { place, rank: startsWithName + startsWithKeyword };
@@ -243,10 +279,11 @@ export async function reverseSearchPlace(lat: number, lon: number): Promise<Plac
 
   const response = await fetch(`https://nominatim.openstreetmap.org/reverse?${params.toString()}`);
   if (!response.ok) {
+    const name = '선택한 위치';
     return {
       id: `picked-${lat}-${lon}`,
-      name: '지도에서 선택한 위치',
-      address: `${lat.toFixed(5)}, ${lon.toFixed(5)}`,
+      name,
+      address: name,
       category: '장소',
       lat,
       lon,
@@ -255,10 +292,11 @@ export async function reverseSearchPlace(lat: number, lon: number): Promise<Plac
 
   const item = (await response.json()) as NominatimResult;
   const name = nameFrom(item);
+  const address = addressFrom(item, name);
   return {
     id: `picked-${item.place_id ?? `${lat}-${lon}`}`,
-    name,
-    address: addressFrom(item, name),
+    name: name || address || '선택한 위치',
+    address: address || name || '선택한 위치',
     category: categoryFrom(item),
     lat,
     lon,
