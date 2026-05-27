@@ -1,0 +1,8 @@
+/* Card with a green-gradient border and a white fill.
+   Use alongside rounded-* + p-* + shadow-* utilities. */
+.card-grad {
+  background:
+    linear-gradient(#ffffff, #ffffff) padding-box,
+    linear-gradient(135deg, #34D399 0%, #10B981 60%, #047857 100%) border-box;
+  border: 2px solid transparent;
+}
