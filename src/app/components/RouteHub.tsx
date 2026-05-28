@@ -303,7 +303,7 @@ export function RouteHub() {
             <p className="text-[11px] font-semibold text-[#5A6B66] flex items-center gap-1">
               <ConditionIcon sx={{ fontSize: 12 }} />
               <span className="truncate">
-                {Math.round(weather.tempC)}°C · {WEATHER_LABELS[weather.condition]} · 미세먼지 {weather.pm10}㎍/㎥ ({pm10Grade(weather.pm10)})
+                {Math.round(weather.tempC)}°C · {WEATHER_LABELS[weather.condition]} · 습도 {weather.humidity}% · 미세먼지 {weather.pm10}㎍/㎥ ({pm10Grade(weather.pm10)})
               </span>
             </p>
             <p className="text-[14px] font-extrabold text-[#14322E] mt-0.5 truncate">
