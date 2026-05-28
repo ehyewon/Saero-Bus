@@ -178,8 +178,14 @@ export function RouteHub() {
           </div>
         </div>
 
-        {/* Greeting card — time-of-day message keyed to the user's nickname */}
-        <div className="mt-5 rounded-3xl bg-gradient-to-br from-[#B8E0D2] to-[#EAF4F0] px-5 py-4 shadow-sm text-[#14322E] relative overflow-hidden">
+        {/* Combined greeting + weather card. Tappable — opens NAVER weather. */}
+        <a
+          href="https://m.weather.naver.com/"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="네이버 날씨 열기"
+          className="mt-5 block rounded-3xl bg-gradient-to-br from-[#B8E0D2] to-[#EAF4F0] px-5 py-4 shadow-sm text-[#14322E] hover:shadow-md active:scale-[0.99] transition"
+        >
           <div className="flex items-center gap-3">
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#005C42]">
@@ -221,36 +227,26 @@ export function RouteHub() {
               }}
             />
           </div>
-        </div>
 
-        {/* Weather card — info-first; temperature & PM10 use semantic colors. Opens NAVER weather. */}
-        <a
-          href="https://m.weather.naver.com/"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="mt-3 rounded-2xl bg-white px-4 py-3 shadow-sm flex items-center gap-3 hover:shadow-md active:scale-[0.99] transition"
-          aria-label="네이버 날씨 열기"
-        >
-          <div
-            className="w-12 h-12 rounded-full flex items-center justify-center shrink-0"
-            style={{ backgroundColor: weatherTip.bg, color: weatherTip.accent }}
-          >
-            <ConditionIcon sx={{ fontSize: 26 }} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-baseline gap-1.5">
-              <span
-                className="text-[22px] font-extrabold leading-none tabular-nums"
-                style={{ color: tempColor(weather.tempC) }}
-              >
-                {Math.round(weather.tempC)}°
+          <div className="mt-3 pt-3 border-t border-white/70 flex items-center justify-between gap-2">
+            <div className="flex items-baseline gap-2 flex-wrap text-[11px] text-[#5A6B66] min-w-0">
+              <span className="flex items-baseline gap-1">
+                <ConditionIcon sx={{ fontSize: 14 }} className="self-center" />
+                <span
+                  className="text-[18px] font-extrabold leading-none tabular-nums"
+                  style={{ color: tempColor(weather.tempC) }}
+                >
+                  {Math.round(weather.tempC)}°
+                </span>
+                <span className="font-semibold text-[#14322E]">
+                  {WEATHER_LABELS[weather.condition]}
+                </span>
               </span>
-              <span className="text-[12px] font-semibold text-[#14322E]">
-                {WEATHER_LABELS[weather.condition]}
+              <span aria-hidden>·</span>
+              <span>
+                습도{' '}
+                <span className="font-semibold text-[#14322E]">{weather.humidity}%</span>
               </span>
-            </div>
-            <p className="text-[11px] mt-1 flex items-center gap-2 flex-wrap text-[#5A6B66]">
-              <span>습도 <span className="font-semibold text-[#14322E]">{weather.humidity}%</span></span>
               <span aria-hidden>·</span>
               <span>
                 미세먼지{' '}
@@ -258,9 +254,9 @@ export function RouteHub() {
                   {weather.pm10}㎍/㎥ ({pm10Grade(weather.pm10)})
                 </span>
               </span>
-            </p>
+            </div>
+            <OpenInNew sx={{ fontSize: 14 }} className="text-[#5A6B66] shrink-0" />
           </div>
-          <OpenInNew sx={{ fontSize: 16 }} className="text-[#5A6B66] shrink-0" />
         </a>
 
         {/* Active / upcoming trip — above the tile grid */}
@@ -315,12 +311,14 @@ function TileCard({ tile, onClick }: TileCardProps) {
       <button
         type="button"
         onClick={onClick}
-        className="aspect-square bg-emerald-700 rounded-2xl p-4 text-white text-left flex flex-col justify-between shadow-md"
+        className="rounded-2xl bg-[#007956] p-3 text-white text-left flex items-center gap-3 shadow-md active:scale-[0.98] transition"
       >
-        <Icon sx={{ fontSize: 36 }} />
-        <div>
-          <p className="font-extrabold text-lg leading-tight">{label}</p>
-          <p className="text-[11px] opacity-90 mt-0.5 leading-snug">{sub}</p>
+        <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
+          <Icon sx={{ fontSize: 22 }} />
+        </div>
+        <div className="min-w-0">
+          <p className="font-extrabold text-[15px] leading-tight">{label}</p>
+          <p className="text-[11px] opacity-90 mt-0.5 leading-snug truncate">{sub}</p>
         </div>
       </button>
     );
@@ -330,12 +328,14 @@ function TileCard({ tile, onClick }: TileCardProps) {
     <button
       type="button"
       onClick={onClick}
-      className="aspect-square card-grad rounded-2xl p-4 text-left flex flex-col justify-between shadow-sm"
+      className="rounded-2xl bg-white p-3 text-left flex items-center gap-3 shadow-sm active:scale-[0.98] transition"
     >
-      <Icon className="text-emerald-700" sx={{ fontSize: 32 }} />
-      <div>
-        <p className="font-extrabold text-gray-900 text-lg leading-tight">{label}</p>
-        <p className="text-[11px] text-gray-500 mt-0.5 leading-snug">{sub}</p>
+      <div className="w-10 h-10 rounded-xl bg-[#EAF4F0] text-[#007956] flex items-center justify-center shrink-0">
+        <Icon sx={{ fontSize: 22 }} />
+      </div>
+      <div className="min-w-0">
+        <p className="font-extrabold text-[#14322E] text-[15px] leading-tight">{label}</p>
+        <p className="text-[11px] text-[#5A6B66] mt-0.5 leading-snug truncate">{sub}</p>
       </div>
     </button>
   );
