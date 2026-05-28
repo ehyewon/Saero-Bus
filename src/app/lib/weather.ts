@@ -44,6 +44,76 @@ export const CONDITION_ICONS: Record<WeatherCondition, IconType> = {
   haze: Masks,
 };
 
+/** WWO weather codes used by wttr.in. https://www.worldweatheronline.com/developer/api/docs/weather-icons.aspx */
+function wttrCodeToCondition(code: number): WeatherCondition {
+  if (code === 113) return 'sunny';
+  if ([116, 119, 122].includes(code)) return 'cloudy';
+  if ([143, 248, 260].includes(code)) return 'haze'; // mist / fog
+  if ([182, 185, 227, 230, 323, 326, 329, 332, 335, 338, 371].includes(code)) return 'snow';
+  return 'rain'; // remaining codes are all rain/drizzle/thunder
+}
+
+const REAL_WEATHER_CACHE_KEY = 'saerobus.weather.real.v1';
+const REAL_WEATHER_TTL_MS = 30 * 60 * 1000; // 30 min — wttr.in updates roughly that often
+
+interface CachedRealWeather {
+  ts: number;
+  weather: Weather;
+}
+
+/**
+ * Fetch live weather for Jeonju from wttr.in (no API key needed, permissive
+ * CORS). Returns null on any failure so the caller can fall back to mock.
+ * Cached in sessionStorage for 30 minutes so navigating around doesn't refetch.
+ * PM10 isn't provided by wttr.in — we keep a nominal value until a separate
+ * air-quality API is wired up.
+ */
+export async function fetchRealWeather(): Promise<Weather | null> {
+  try {
+    const cached = sessionStorage.getItem(REAL_WEATHER_CACHE_KEY);
+    if (cached) {
+      const parsed = JSON.parse(cached) as CachedRealWeather;
+      if (parsed?.weather && Date.now() - parsed.ts < REAL_WEATHER_TTL_MS) {
+        return parsed.weather;
+      }
+    }
+  } catch {
+    /* ignore — fall through to network */
+  }
+
+  try {
+    const res = await fetch('https://wttr.in/Jeonju?format=j1&lang=ko');
+    if (!res.ok) return null;
+    const data = await res.json();
+    const current = data?.current_condition?.[0];
+    if (!current) return null;
+
+    const code = Number(current.weatherCode);
+    const tempC = Number(current.temp_C);
+    const humidity = Number(current.humidity);
+    if (!Number.isFinite(tempC) || !Number.isFinite(humidity)) return null;
+
+    const weather: Weather = {
+      condition: wttrCodeToCondition(code),
+      tempC,
+      humidity,
+      pm10: 38, // wttr.in doesn't return PM10 — keep a nominal "보통" value
+    };
+
+    try {
+      sessionStorage.setItem(
+        REAL_WEATHER_CACHE_KEY,
+        JSON.stringify({ ts: Date.now(), weather } satisfies CachedRealWeather),
+      );
+    } catch {
+      /* ignore */
+    }
+    return weather;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Deterministic per-day mock weather. Same calendar day → same condition,
  * temperature follows a gentle circadian curve so it looks alive without

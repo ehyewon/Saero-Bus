@@ -24,6 +24,7 @@ import { loadUpcomingTrip, type UpcomingTrip } from '../lib/upcoming';
 import { clearActiveTrip } from '../lib/activeTrip';
 import {
   loadMockWeather,
+  fetchRealWeather,
   pickWeatherTip,
   pm10Grade,
   WEATHER_LABELS,
@@ -133,7 +134,16 @@ export function RouteHub() {
   const [nickname, setNickname] = useState('');
   const [daypart] = useState(() => getDaypart());
   const DaypartIcon = DAYPART_META[daypart].Icon;
-  const [weather] = useState(() => loadMockWeather());
+  const [weather, setWeather] = useState(() => loadMockWeather());
+  useEffect(() => {
+    let cancelled = false;
+    fetchRealWeather().then((real) => {
+      if (real && !cancelled) setWeather(real);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const weatherTip = useMemo(() => pickWeatherTip(weather), [weather]);
   const ConditionIcon = CONDITION_ICONS[weather.condition];
   const urgent = useMemo(() => {
