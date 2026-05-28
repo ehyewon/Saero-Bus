@@ -3,7 +3,6 @@ import {
   ArrowBack,
   Check,
   MyLocation,
-  Place,
   Search,
 } from '@mui/icons-material';
 import {
@@ -54,60 +53,36 @@ const FEATURED_PLACES: PlaceSearchResult[] = [
   },
 ];
 
-function coordFromClick(rect: DOMRect, clientX: number, clientY: number) {
-  const x = (clientX - rect.left) / rect.width;
-  const y = (clientY - rect.top) / rect.height;
-  return {
-    lat: DEFAULT_CENTER.lat + (0.5 - y) * 0.08,
-    lon: DEFAULT_CENTER.lon + (x - 0.5) * 0.1,
-    x: x * 100,
-    y: y * 100,
-  };
-}
-
-function Marker({
-  place,
-  onSelect,
-}: {
-  place: PlaceSearchResult;
-  onSelect: (place: PlaceSearchResult) => void;
-}) {
+function Marker({ place }: { place: PlaceSearchResult }) {
   const x = place.lon ? 50 + (place.lon - DEFAULT_CENTER.lon) * 1000 : 50;
   const y = place.lat ? 50 - (place.lat - DEFAULT_CENTER.lat) * 1250 : 50;
   const clampedX = Math.max(12, Math.min(88, x));
   const clampedY = Math.max(12, Math.min(88, y));
 
   return (
-    <button
-      type="button"
-      onClick={(event) => {
-        event.stopPropagation();
-        onSelect(place);
-      }}
-      className="absolute -translate-x-1/2 -translate-y-full"
+    <div
+      className="absolute -translate-x-1/2 -translate-y-full pointer-events-none"
       style={{ left: `${clampedX}%`, top: `${clampedY}%` }}
-      aria-label={`${place.name} 선택`}
     >
       <span className="block bg-emerald-700 text-white text-[11px] font-bold px-2.5 py-1 rounded-full shadow-md whitespace-nowrap">
         {place.name}
       </span>
       <span className="mx-auto block w-3 h-3 bg-emerald-700 rotate-45 -mt-1" />
-    </button>
+    </div>
   );
 }
 
 interface NaverMapPanelProps {
   markers: PlaceSearchResult[];
-  onSelect: (place: PlaceSearchResult) => void;
-  onFallbackClick: (event: React.MouseEvent<HTMLDivElement>) => void;
-  pickedPoint: { x: number; y: number } | null;
   mapError: string;
   setMapError: (value: string) => void;
   setMapLoadFailed: (value: boolean) => void;
   setMapReady: (value: boolean) => void;
+  onPick: (place: PlaceSearchResult) => void;
   selectedMarkerRef: React.MutableRefObject<any>;
   resultMarkersRef: React.MutableRefObject<any[]>;
   liveLocationMarkerRef: React.MutableRefObject<any>;
+  latestLivePositionRef: React.MutableRefObject<{ lat: number; lon: number } | null>;
   naverRef: React.MutableRefObject<any>;
   naverMapRef: React.MutableRefObject<any>;
   debugOpen: boolean;
@@ -116,16 +91,15 @@ interface NaverMapPanelProps {
 
 function NaverMapPanel({
   markers,
-  onSelect,
-  onFallbackClick,
-  pickedPoint,
   mapError,
   setMapError,
   setMapLoadFailed,
   setMapReady,
+  onPick,
   selectedMarkerRef,
   resultMarkersRef,
   liveLocationMarkerRef,
+  latestLivePositionRef,
   naverRef,
   naverMapRef,
   debugOpen,
@@ -179,7 +153,7 @@ function NaverMapPanel({
           const lon = coord.lng();
           const place = await reverseSearchWithNaver(naver, lat, lon);
           if (disposed) return;
-          onSelect(place);
+          onPick(place);
 
           if (selectedMarkerRef.current) selectedMarkerRef.current.setMap(null);
           selectedMarkerRef.current = new naver.maps.Marker({
@@ -189,28 +163,48 @@ function NaverMapPanel({
         });
 
         if (navigator.geolocation) {
+          const applyCurrentPosition = (lat: number, lon: number) => {
+            latestLivePositionRef.current = { lat, lon };
+            const current = new naver.maps.LatLng(lat, lon);
+            if (!liveLocationMarkerRef.current) {
+              liveLocationMarkerRef.current = new naver.maps.Marker({
+                position: current,
+                map,
+                icon: {
+                  content:
+                    '<div style="width:18px;height:18px;border-radius:999px;background:#2563eb;border:3px solid white;box-shadow:0 0 0 8px rgba(37,99,235,.18),0 3px 10px rgba(0,0,0,.25);"></div>',
+                  anchor: new naver.maps.Point(9, 9),
+                },
+                title: '내 현재 위치',
+              });
+            } else {
+              liveLocationMarkerRef.current.setPosition(current);
+            }
+            map.panTo(current);
+            map.setCenter(current);
+            setLiveLocationActive(true);
+          };
+
+          navigator.geolocation.getCurrentPosition(
+            (position) => {
+              if (disposed) return;
+              applyCurrentPosition(position.coords.latitude, position.coords.longitude);
+            },
+            () => {
+              if (disposed) return;
+              setLiveLocationActive(false);
+            },
+            {
+              enableHighAccuracy: true,
+              maximumAge: 3000,
+              timeout: 10000,
+            },
+          );
+
           watchId = navigator.geolocation.watchPosition(
             (position) => {
               if (disposed) return;
-              const current = new naver.maps.LatLng(
-                position.coords.latitude,
-                position.coords.longitude,
-              );
-              if (!liveLocationMarkerRef.current) {
-                liveLocationMarkerRef.current = new naver.maps.Marker({
-                  position: current,
-                  map,
-                  icon: {
-                    content:
-                      '<div style="width:18px;height:18px;border-radius:999px;background:#2563eb;border:3px solid white;box-shadow:0 0 0 8px rgba(37,99,235,.18),0 3px 10px rgba(0,0,0,.25);"></div>',
-                    anchor: new naver.maps.Point(9, 9),
-                  },
-                  title: '내 현재 위치',
-                });
-              } else {
-                liveLocationMarkerRef.current.setPosition(current);
-              }
-              setLiveLocationActive(true);
+              applyCurrentPosition(position.coords.latitude, position.coords.longitude);
             },
             () => {
               setLiveLocationActive(false);
@@ -242,9 +236,10 @@ function NaverMapPanel({
     };
   }, [
     liveLocationMarkerRef,
+    latestLivePositionRef,
     naverMapRef,
     naverRef,
-    onSelect,
+    onPick,
     resultMarkersRef,
     selectedMarkerRef,
     setMapError,
@@ -258,26 +253,21 @@ function NaverMapPanel({
     if (!naver || !map || !ready) return;
 
     resultMarkersRef.current.forEach((marker) => marker.setMap(null));
-    resultMarkersRef.current = markers
-      .filter((place) => place.lat && place.lon)
-      .map((place) => {
-        const marker = new naver.maps.Marker({
-          position: new naver.maps.LatLng(place.lat, place.lon),
-          map,
-          title: place.name,
+      resultMarkersRef.current = markers
+        .filter((place) => place.lat && place.lon)
+        .map((place) => {
+          const marker = new naver.maps.Marker({
+            position: new naver.maps.LatLng(place.lat, place.lon),
+            map,
+            title: place.name,
+          });
+          return marker;
         });
-        naver.maps.Event.addListener(marker, 'click', () => {
-          onSelect(place);
-          map.panTo(marker.getPosition());
-        });
-        return marker;
-      });
-  }, [markers, naverMapRef, naverRef, onSelect, ready, resultMarkersRef]);
+  }, [markers, naverMapRef, naverRef, ready, resultMarkersRef]);
 
   return (
     <div
       ref={containerRef}
-      onClick={ready ? undefined : onFallbackClick}
       className="relative mt-3 h-80 overflow-hidden rounded-3xl border border-emerald-100 bg-[#E8EDE3]"
     >
       {!ready && (
@@ -291,18 +281,9 @@ function NaverMapPanel({
             <div className="absolute right-[-8%] bottom-[-4%] h-28 w-36 rounded-3xl bg-emerald-200/50" />
           </div>
 
-          {markers.map((place) => (
-            <Marker key={place.id} place={place} onSelect={onSelect} />
+      {markers.map((place) => (
+          <Marker key={place.id} place={place} />
           ))}
-
-          {pickedPoint && (
-            <div
-              className="absolute -translate-x-1/2 -translate-y-full"
-              style={{ left: `${pickedPoint.x}%`, top: `${pickedPoint.y}%` }}
-            >
-              <Place className="text-rose-600 drop-shadow" sx={{ fontSize: 38 }} />
-            </div>
-          )}
 
           {failed && (
             <div className="absolute left-3 top-3 right-3 rounded-2xl bg-white/95 px-3 py-2 text-xs text-gray-600 shadow-sm">
@@ -376,14 +357,18 @@ function reverseSearchWithNaver(naver: any, lat: number, lon: number): Promise<P
         const address = response?.v2?.address;
         const roadAddress = address?.roadAddress || '';
         const jibunAddress = address?.jibunAddress || '';
-        const displayAddress = roadAddress || jibunAddress || `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+        const land = address?.land;
+        const addition0 = land?.addition0;
+        const buildingName = addition0?.type === 'building' ? addition0?.value || '' : '';
+        const name = buildingName || roadAddress || jibunAddress || `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+        const displayAddress = roadAddress || jibunAddress || name;
         if (!roadAddress && !jibunAddress) {
           fallback();
           return;
         }
         resolve({
           id: `naver-picked-${lat}-${lon}`,
-          name: displayAddress,
+          name,
           address: displayAddress,
           roadAddress,
           jibunAddress,
@@ -448,7 +433,6 @@ export function PlacePickerPage({
   const [selectionSource, setSelectionSource] = useState<'search' | 'map' | null>(null);
   const [hasTypedQuery, setHasTypedQuery] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
-  const [pickedPoint, setPickedPoint] = useState<{ x: number; y: number } | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [mapLoadFailed, setMapLoadFailed] = useState(false);
   const [mapError, setMapError] = useState('');
@@ -458,6 +442,7 @@ export function PlacePickerPage({
   const selectedMarkerRef = useRef<any>(null);
   const resultMarkersRef = useRef<any[]>([]);
   const liveLocationMarkerRef = useRef<any>(null);
+  const latestLivePositionRef = useRef<{ lat: number; lon: number } | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -525,25 +510,79 @@ export function PlacePickerPage({
     }
   };
 
-  const handleFallbackMapClick = async (event: React.MouseEvent<HTMLDivElement>) => {
-    const point = coordFromClick(event.currentTarget.getBoundingClientRect(), event.clientX, event.clientY);
-    setPickedPoint({ x: point.x, y: point.y });
-    const place = await reverseSearchPlace(point.lat, point.lon);
-    selectPlace(place, 'map');
-  };
-
   const pickCurrentLocation = () => {
     const naver = naverRef.current;
     const map = naverMapRef.current;
-    if (naver && map) {
-      const current = liveLocationMarkerRef.current?.getPosition?.() || map.getCenter();
+    const latest = latestLivePositionRef.current;
+
+    if (naver && map && latest) {
+      const current = new naver.maps.LatLng(latest.lat, latest.lon);
+      map.panTo(current);
+      map.setCenter(current);
+      if (!liveLocationMarkerRef.current) {
+        liveLocationMarkerRef.current = new naver.maps.Marker({
+          position: current,
+          map,
+          icon: {
+            content:
+              '<div style="width:18px;height:18px;border-radius:999px;background:#2563eb;border:3px solid white;box-shadow:0 0 0 8px rgba(37,99,235,.18),0 3px 10px rgba(0,0,0,.25);"></div>',
+            anchor: new naver.maps.Point(9, 9),
+          },
+          title: '내 현재 위치',
+        });
+      } else {
+        liveLocationMarkerRef.current.setPosition(current);
+      }
       reverseSearchWithNaver(naver, current.lat(), current.lng()).then((place) =>
         selectPlace(place, 'map'),
       );
       return;
     }
-    selectPlace(FEATURED_PLACES[0], 'map');
-    setPickedPoint({ x: 50, y: 50 });
+
+    if (naver && map && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          const lat = position.coords.latitude;
+          const lon = position.coords.longitude;
+          latestLivePositionRef.current = { lat, lon };
+          const current = new naver.maps.LatLng(lat, lon);
+          map.panTo(current);
+          map.setCenter(current);
+          if (!liveLocationMarkerRef.current) {
+            liveLocationMarkerRef.current = new naver.maps.Marker({
+              position: current,
+              map,
+              icon: {
+                content:
+                  '<div style="width:18px;height:18px;border-radius:999px;background:#2563eb;border:3px solid white;box-shadow:0 0 0 8px rgba(37,99,235,.18),0 3px 10px rgba(0,0,0,.25);"></div>',
+                anchor: new naver.maps.Point(9, 9),
+              },
+              title: '내 현재 위치',
+            });
+          } else {
+            liveLocationMarkerRef.current.setPosition(current);
+          }
+          reverseSearchWithNaver(naver, current.lat(), current.lng()).then((place) =>
+            selectPlace(place, 'map'),
+          );
+        },
+        () => {
+          const current = liveLocationMarkerRef.current?.getPosition?.() || map.getCenter();
+          map.panTo(current);
+          map.setCenter(current);
+          reverseSearchWithNaver(naver, current.lat(), current.lng()).then((place) =>
+            selectPlace(place, 'map'),
+          );
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 3000,
+          timeout: 10000,
+        },
+      );
+      return;
+    }
+    setMapError('현재 위치를 가져올 수 없습니다. 위치 권한을 확인해 주세요.');
   };
 
   const visibleResults = selectionSource === 'map'
@@ -646,38 +685,26 @@ export function PlacePickerPage({
             )}
 
             <div className="relative">
-              <NaverMapPanel
+            <NaverMapPanel
                 markers={mapMarkers}
-                onSelect={(place) => selectPlace(place, 'map')}
-                onFallbackClick={handleFallbackMapClick}
-                pickedPoint={pickedPoint}
                 mapError={mapError}
                 setMapError={setMapError}
                 setMapLoadFailed={setMapLoadFailed}
                 setMapReady={setMapReady}
+                onPick={(place) => selectPlace(place, 'map')}
                 selectedMarkerRef={selectedMarkerRef}
                 resultMarkersRef={resultMarkersRef}
                 liveLocationMarkerRef={liveLocationMarkerRef}
+                latestLivePositionRef={latestLivePositionRef}
                 naverRef={naverRef}
                 naverMapRef={naverMapRef}
                 debugOpen={debugOpen}
                 setDebugOpen={setDebugOpen}
               />
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  pickCurrentLocation();
-                }}
-                className="absolute right-3 bottom-3 w-11 h-11 rounded-full bg-white shadow-md flex items-center justify-center text-emerald-700"
-                aria-label="현재 지도 중심으로"
-              >
-                <MyLocation />
-              </button>
             </div>
 
             <p className="mt-2 text-xs text-gray-500">
-              지도 위 장소를 누르거나 원하는 지점을 터치해서 설정할 수 있어요.
+              검색창 옆 현위치 버튼으로 현재 위치를 맞출 수 있어요.
             </p>
 
             <button
