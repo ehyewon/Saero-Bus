@@ -54,6 +54,17 @@ export function HomePage({ onBack }: HomePageProps = {}) {
       setDestination(trip.destination);
       setTime(trip.arrivalTime);
       setShowResults(true);
+      return;
+    }
+    // Quick-pick from RouteHub (자주 가는 곳) — one-shot destination prefill.
+    try {
+      const quick = sessionStorage.getItem('saerobus.quickDestination');
+      if (quick) {
+        setDestination(quick);
+        sessionStorage.removeItem('saerobus.quickDestination');
+      }
+    } catch {
+      /* ignore */
     }
   }, []);
 

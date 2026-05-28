@@ -14,6 +14,8 @@ import {
   DarkMode,
   PriorityHigh,
   OpenInNew,
+  Home,
+  School,
 } from '@mui/icons-material';
 import { HomePage } from './HomePage';
 import { ActiveTripCard } from './ActiveTripCard';
@@ -97,6 +99,26 @@ function loadNickname(): string {
   }
 }
 
+interface FavoritePlace {
+  address: string;
+  lat?: number;
+  lng?: number;
+}
+
+function loadOnboardingFavorites(): { home: FavoritePlace | null; frequent: FavoritePlace | null } {
+  try {
+    const raw = localStorage.getItem('saerobus.places.v1');
+    if (!raw) return { home: null, frequent: null };
+    const parsed = JSON.parse(raw);
+    return {
+      home: parsed?.home?.address ? parsed.home : null,
+      frequent: parsed?.frequent?.address ? parsed.frequent : null,
+    };
+  } catch {
+    return { home: null, frequent: null };
+  }
+}
+
 const TILES: Tile[] = [
   { id: 'route', label: '경로', sub: '도착 시각으로 출발 시간 추천', Icon: RouteIcon, primary: true },
   { id: 'bus',   label: '버스', sub: '노선·정류장 검색',           Icon: DirectionsBus, tabIndex: 1 },
@@ -131,12 +153,30 @@ export function RouteHub() {
     };
   }, [searchOpen]);
 
+  const [favorites, setFavorites] = useState<{ home: FavoritePlace | null; frequent: FavoritePlace | null }>({
+    home: null,
+    frequent: null,
+  });
+
   useEffect(() => {
     setNickname(loadNickname());
-    const refresh = () => setNickname(loadNickname());
+    setFavorites(loadOnboardingFavorites());
+    const refresh = () => {
+      setNickname(loadNickname());
+      setFavorites(loadOnboardingFavorites());
+    };
     window.addEventListener('focus', refresh);
     return () => window.removeEventListener('focus', refresh);
   }, []);
+
+  const handleQuickPlace = (place: FavoritePlace) => {
+    try {
+      sessionStorage.setItem('saerobus.quickDestination', place.address);
+    } catch {
+      /* ignore */
+    }
+    setSearchOpen(true);
+  };
 
   const handleTileClick = (tile: Tile) => {
     if (tile.id === 'route') {
@@ -278,6 +318,31 @@ export function RouteHub() {
           ))}
         </div>
 
+        {/* Quick-pick favorite places (집 / 자주 가는 곳 — onboarding data put to use) */}
+        {(favorites.home || favorites.frequent) && (
+          <div className="mt-4">
+            <p className="text-[11px] font-semibold text-[#5A6B66] mb-2">자주 가는 곳</p>
+            <div className="grid grid-cols-2 gap-3">
+              {favorites.home && (
+                <FavoriteChip
+                  Icon={Home}
+                  label="집"
+                  address={favorites.home.address}
+                  onClick={() => handleQuickPlace(favorites.home!)}
+                />
+              )}
+              {favorites.frequent && (
+                <FavoriteChip
+                  Icon={School}
+                  label="자주 가는 곳"
+                  address={favorites.frequent.address}
+                  onClick={() => handleQuickPlace(favorites.frequent!)}
+                />
+              )}
+            </div>
+          </div>
+        )}
+
         {/* End-trip button (only when a trip is active) */}
         {upcoming && (
           <button
@@ -301,6 +366,31 @@ export function RouteHub() {
 interface TileCardProps {
   tile: Tile;
   onClick: () => void;
+}
+
+interface FavoriteChipProps {
+  Icon: typeof Home;
+  label: string;
+  address: string;
+  onClick: () => void;
+}
+
+function FavoriteChip({ Icon, label, address, onClick }: FavoriteChipProps) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-2xl bg-white p-3 text-left flex items-center gap-3 shadow-sm active:scale-[0.98] transition"
+    >
+      <div className="w-10 h-10 rounded-xl bg-[#B8E0D2] text-[#005C42] flex items-center justify-center shrink-0">
+        <Icon sx={{ fontSize: 22 }} />
+      </div>
+      <div className="min-w-0">
+        <p className="text-[11px] font-semibold text-[#5A6B66]">{label}</p>
+        <p className="text-[12px] font-bold text-[#14322E] truncate">{address}</p>
+      </div>
+    </button>
+  );
 }
 
 function TileCard({ tile, onClick }: TileCardProps) {
