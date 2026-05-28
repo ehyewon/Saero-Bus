@@ -12,6 +12,7 @@ interface StoredAlarm {
 }
 
 export interface UpcomingTrip {
+  origin?: string;
   destination: string;
   arrivalTime: string; // "HH:mm" 24h
   source: 'search' | 'alarm';
@@ -41,6 +42,7 @@ function hhmmToDateToday(hhmm: string): Date | null {
   if (Number.isNaN(h) || Number.isNaN(m)) return null;
   const d = new Date();
   d.setHours(h, m, 0, 0);
+  if (d.getTime() < Date.now()) d.setDate(d.getDate() + 1);
   return d;
 }
 
@@ -63,7 +65,16 @@ function loadAlarms(): StoredAlarm[] {
 export function loadUpcomingTrip(windowHours = 2): UpcomingTrip | null {
   const trip: ActiveTrip | null = loadActiveTrip();
   if (trip) {
+    const arrival = hhmmToDateToday(trip.arrivalTime);
+    if (!arrival) return null;
+
+    const diff = arrival.getTime() - Date.now();
+    if (diff > windowHours * 60 * 60_000 || diff <= 0) {
+      return null;
+    }
+
     return {
+      origin: trip.origin,
       destination: trip.destination,
       arrivalTime: trip.arrivalTime,
       source: 'search',
@@ -90,6 +101,7 @@ export function loadUpcomingTrip(windowHours = 2): UpcomingTrip | null {
   candidates.sort((x, y) => x.date.getTime() - y.date.getTime());
   const top = candidates[0];
   return {
+    origin: undefined,
     destination: top.alarm.title,
     arrivalTime: top.hhmm,
     source: 'alarm',

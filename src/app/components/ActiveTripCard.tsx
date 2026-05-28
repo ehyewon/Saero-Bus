@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Warning, DirectionsWalk } from '@mui/icons-material';
+import { Warning, DirectionsWalk, Close } from '@mui/icons-material';
 
 interface ActiveTripCardProps {
+  origin?: string;
   destination: string;
   arrivalTime: string; // "HH:mm"
   homeLabel?: string;
   destinationLabel?: string;
+  onEnd?: () => void;
   /** Render the small "오늘의 이동 · ..." subheader above the card */
   showSubheader?: boolean;
 }
@@ -38,10 +40,12 @@ export const addMin = (d: Date, m: number) => {
 };
 
 export function ActiveTripCard({
+  origin,
   destination,
   arrivalTime,
   homeLabel = '집',
   destinationLabel,
+  onEnd,
   showSubheader = true,
 }: ActiveTripCardProps) {
   const [now, setNow] = useState<Date>(new Date());
@@ -70,9 +74,10 @@ export function ActiveTripCard({
   );
 
   const minutesUntilDepart = departDate
-    ? Math.max(0, Math.round((departDate.getTime() - now.getTime()) / 60000))
+    ? Math.max(0, Math.ceil((departDate.getTime() - now.getTime()) / 60000))
     : 0;
 
+  const originLabel = origin || homeLabel || '집';
   const destLabel = destinationLabel || destination || '목적지';
 
   return (
@@ -81,7 +86,7 @@ export function ActiveTripCard({
         <p className="text-sm text-gray-600 mb-2">
           오늘의 이동 ·{' '}
           <span className="text-gray-900 font-semibold">
-            {homeLabel} → {destLabel}
+            {originLabel} → {destLabel}
           </span>
         </p>
       )}
@@ -141,6 +146,17 @@ export function ActiveTripCard({
           <span className="text-rose-600 font-bold">지각 위험</span>
         </p>
       </div>
+
+      {onEnd && (
+        <button
+          type="button"
+          onClick={onEnd}
+          className="mt-3 w-full rounded-xl py-3 flex items-center justify-center gap-1.5 text-sm font-semibold text-gray-800 bg-white border-2 border-gray-500"
+        >
+          <Close sx={{ fontSize: 18 }} />
+          경로 안내 종료
+        </button>
+      )}
 
     </div>
   );

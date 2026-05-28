@@ -142,12 +142,6 @@ export function HomePage({ onBack }: HomePageProps = {}) {
           setShowResults(false);
         }}
         onEnd={endTrip}
-        onSelectQuickPlace={(label) => {
-          clearActiveTrip();
-          setOrigin('');
-          setDestination(label);
-          setShowResults(false);
-        }}
       />
     );
   }
