@@ -111,6 +111,30 @@ function minutesUntilArrival(arrivalTime: string | undefined, now = new Date()):
   return Math.round((target.getTime() - now.getTime()) / 60_000);
 }
 
+/**
+ * Pick a greeting line once per (daypart, calendar day) and cache it in
+ * localStorage so that re-mounting the screen (tab switch, etc.) keeps the
+ * same message. Re-rolls naturally when the day or the daypart changes.
+ */
+function pickStableGreeting(daypart: Daypart): string {
+  const list = GREETINGS[daypart];
+  const today = new Date().toISOString().slice(0, 10);
+  const key = `saerobus.greeting.${today}.${daypart}`;
+  try {
+    const cached = localStorage.getItem(key);
+    if (cached && list.includes(cached)) return cached;
+  } catch {
+    /* ignore */
+  }
+  const pick = list[Math.floor(Math.random() * list.length)];
+  try {
+    localStorage.setItem(key, pick);
+  } catch {
+    /* ignore */
+  }
+  return pick;
+}
+
 function loadNickname(): string {
   try {
     const raw = localStorage.getItem('saerobus.profile.v1');
@@ -133,11 +157,11 @@ export function RouteHub() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [upcoming, setUpcoming] = useState<UpcomingTrip | null>(null);
   const [nickname, setNickname] = useState('');
-  // Pick a daypart + greeting once per mount so the message stays stable while the user is here.
+  // Greeting is keyed to (today, daypart) and cached in localStorage so the
+  // line stays the same while the user navigates around the app.
   const [greeting] = useState(() => {
     const daypart = getDaypart();
-    const list = GREETINGS[daypart];
-    return { daypart, line: list[Math.floor(Math.random() * list.length)] };
+    return { daypart, line: pickStableGreeting(daypart) };
   });
   const DaypartIcon = DAYPART_META[greeting.daypart].Icon;
   const urgent = useMemo(() => {
@@ -206,10 +230,10 @@ export function RouteHub() {
         </div>
 
         {/* Greeting card — time-of-day message keyed to the user's nickname */}
-        <div className="mt-5 rounded-3xl bg-gradient-to-br from-[#0E6E8B] to-[#14322E] px-6 py-7 shadow-md text-white relative overflow-hidden">
-          <div className="flex items-start gap-3">
+        <div className="mt-5 rounded-3xl bg-gradient-to-br from-[#B8E0D2] to-[#EAF4F0] px-6 py-6 shadow-sm text-[#14322E] relative overflow-hidden">
+          <div className="flex items-center gap-3">
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 text-[12px] font-semibold opacity-85">
+              <div className="flex items-center gap-1.5 text-[12px] font-semibold text-[#005C42]">
                 {urgent ? (
                   <>
                     <PriorityHigh sx={{ fontSize: 16 }} />
@@ -222,9 +246,8 @@ export function RouteHub() {
                   </>
                 )}
               </div>
-              <p className="mt-2 text-[26px] leading-[1.25] font-extrabold">
-                {nickname ? `${nickname}님!` : '안녕하세요!'}
-                <br />
+              <p className="mt-1.5 text-[22px] leading-[1.3] font-extrabold">
+                {nickname ? `${nickname}님! ` : '안녕하세요! '}
                 {urgent ? '지금 나가야 해요' : greeting.line}
               </p>
             </div>
