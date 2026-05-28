@@ -48,57 +48,6 @@ function getDaypart(date = new Date()): Daypart {
   return 'night';
 }
 
-const GREETINGS: Record<Daypart, string[]> = {
-  morning: [
-    '오늘 하루도 화이팅이에요',
-    '좋은 아침이에요',
-    '오늘도 잘 다녀오세요',
-    '상쾌한 하루 시작해볼까요?',
-    '오늘 햇살이 참 좋네요',
-    '아침은 챙겨드셨어요?',
-    '출발 준비는 되셨나요?',
-    '오늘은 어떤 하루가 기다릴까요?',
-    '새로운 하루 응원할게요',
-    '늦지 않게 도와드릴게요',
-  ],
-  afternoon: [
-    '점심은 드셨어요?',
-    '잠깐 쉬어가도 좋아요',
-    '오후도 힘내세요',
-    '햇살 좋은 오후네요',
-    '다음 일정 챙겨드릴게요',
-    '졸음이 올 시간이에요',
-    '산책하기 좋은 날이에요',
-    '오후 일정 가볍게 가봐요',
-    '잠깐 숨 돌리는 거 잊지 마세요',
-    '오늘 절반 잘 달려왔어요',
-  ],
-  evening: [
-    '오늘도 수고하셨어요',
-    '저녁 달이 참 예쁘네요',
-    '집까지 편히 모실게요',
-    '오늘 하루 어떠셨어요?',
-    '조심해서 들어가세요',
-    '야경이 멋진 시간이에요',
-    '따뜻한 저녁 보내세요',
-    '마지막 한 걸음만 더 힘내요',
-    '오늘도 잘 이겨내셨어요',
-    '푹 쉬셔도 괜찮아요',
-  ],
-  night: [
-    '별이 빛나는 시간이에요',
-    '오늘도 정말 수고하셨어요',
-    '내일 더 좋은 하루 보내요',
-    '달빛이 참 따뜻하네요',
-    '조용한 밤 즐기세요',
-    '꿈자리 편안하시길요',
-    '푹 쉬고 일어나요',
-    '밤바람이 시원해요',
-    '오늘 하루 마무리 잘 했어요',
-    '잘 자요',
-  ],
-};
-
 const DAYPART_META: Record<Daypart, { label: string; Icon: typeof WbSunny; duck: string }> = {
   morning: { label: '오늘 아침', Icon: WbSunny, duck: '/ducks/heart.png' },
   afternoon: { label: '오늘 낮', Icon: LightMode, duck: '/ducks/star.png' },
@@ -119,28 +68,22 @@ function minutesUntilArrival(arrivalTime: string | undefined, now = new Date()):
   return Math.round((target.getTime() - now.getTime()) / 60_000);
 }
 
-/**
- * Pick a greeting line once per (daypart, calendar day) and cache it in
- * localStorage so that re-mounting the screen (tab switch, etc.) keeps the
- * same message. Re-rolls naturally when the day or the daypart changes.
- */
-function pickStableGreeting(daypart: Daypart): string {
-  const list = GREETINGS[daypart];
-  const today = new Date().toISOString().slice(0, 10);
-  const key = `saerobus.greeting.${today}.${daypart}`;
-  try {
-    const cached = localStorage.getItem(key);
-    if (cached && list.includes(cached)) return cached;
-  } catch {
-    /* ignore */
-  }
-  const pick = list[Math.floor(Math.random() * list.length)];
-  try {
-    localStorage.setItem(key, pick);
-  } catch {
-    /* ignore */
-  }
-  return pick;
+/** Foreground colour for the big temperature reading. */
+function tempColor(c: number): string {
+  if (c >= 30) return '#DC2626'; // very hot
+  if (c >= 26) return '#EA580C'; // hot
+  if (c <= 0) return '#1D4ED8';  // very cold
+  if (c <= 5) return '#2563EB';  // cold
+  if (c <= 10) return '#3B82F6'; // chilly
+  return '#14322E';              // neutral / forest ink
+}
+
+/** Foreground colour for PM10 reading, matching Korean grade bands. */
+function pm10Color(pm: number): string {
+  if (pm <= 30) return '#059669';  // 좋음 — emerald
+  if (pm <= 80) return '#CA8A04';  // 보통 — yellow
+  if (pm <= 150) return '#EA580C'; // 나쁨 — orange
+  return '#DC2626';                // 매우 나쁨 — red
 }
 
 function loadNickname(): string {
@@ -165,13 +108,8 @@ export function RouteHub() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [upcoming, setUpcoming] = useState<UpcomingTrip | null>(null);
   const [nickname, setNickname] = useState('');
-  // Greeting is keyed to (today, daypart) and cached in localStorage so the
-  // line stays the same while the user navigates around the app.
-  const [greeting] = useState(() => {
-    const daypart = getDaypart();
-    return { daypart, line: pickStableGreeting(daypart) };
-  });
-  const DaypartIcon = DAYPART_META[greeting.daypart].Icon;
+  const [daypart] = useState(() => getDaypart());
+  const DaypartIcon = DAYPART_META[daypart].Icon;
   const [weather] = useState(() => loadMockWeather());
   const weatherTip = useMemo(() => pickWeatherTip(weather), [weather]);
   const ConditionIcon = CONDITION_ICONS[weather.condition];
@@ -253,17 +191,17 @@ export function RouteHub() {
                 ) : (
                   <>
                     <DaypartIcon sx={{ fontSize: 14 }} />
-                    <span>{DAYPART_META[greeting.daypart].label}</span>
+                    <span>{DAYPART_META[daypart].label}</span>
                   </>
                 )}
               </div>
               <p className="mt-1 text-[19px] leading-[1.3] font-extrabold">
                 {nickname ? `${nickname}님! ` : '안녕하세요! '}
-                {urgent ? '지금 나가야 해요' : greeting.line}
+                {urgent ? '지금 나가야 해요' : weatherTip.line}
               </p>
             </div>
             <motion.img
-              src={urgent ? URGENT_DUCK : DAYPART_META[greeting.daypart].duck}
+              src={urgent ? URGENT_DUCK : DAYPART_META[daypart].duck}
               alt=""
               draggable={false}
               onError={(e) => {
@@ -285,7 +223,7 @@ export function RouteHub() {
           </div>
         </div>
 
-        {/* Weather care card — small, glanceable, condition-aware tip. Opens NAVER weather. */}
+        {/* Weather card — info-first; temperature & PM10 use semantic colors. Opens NAVER weather. */}
         <a
           href="https://m.weather.naver.com/"
           target="_blank"
@@ -297,17 +235,29 @@ export function RouteHub() {
             className="w-12 h-12 rounded-full flex items-center justify-center shrink-0"
             style={{ backgroundColor: weatherTip.bg, color: weatherTip.accent }}
           >
-            <weatherTip.Icon sx={{ fontSize: 26 }} />
+            <ConditionIcon sx={{ fontSize: 26 }} />
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[11px] font-semibold text-[#5A6B66] flex items-center gap-1">
-              <ConditionIcon sx={{ fontSize: 12 }} />
-              <span className="truncate">
-                {Math.round(weather.tempC)}°C · {WEATHER_LABELS[weather.condition]} · 습도 {weather.humidity}% · 미세먼지 {weather.pm10}㎍/㎥ ({pm10Grade(weather.pm10)})
+            <div className="flex items-baseline gap-1.5">
+              <span
+                className="text-[22px] font-extrabold leading-none tabular-nums"
+                style={{ color: tempColor(weather.tempC) }}
+              >
+                {Math.round(weather.tempC)}°
               </span>
-            </p>
-            <p className="text-[14px] font-extrabold text-[#14322E] mt-0.5 truncate">
-              {weatherTip.line}
+              <span className="text-[12px] font-semibold text-[#14322E]">
+                {WEATHER_LABELS[weather.condition]}
+              </span>
+            </div>
+            <p className="text-[11px] mt-1 flex items-center gap-2 flex-wrap text-[#5A6B66]">
+              <span>습도 <span className="font-semibold text-[#14322E]">{weather.humidity}%</span></span>
+              <span aria-hidden>·</span>
+              <span>
+                미세먼지{' '}
+                <span className="font-semibold" style={{ color: pm10Color(weather.pm10) }}>
+                  {weather.pm10}㎍/㎥ ({pm10Grade(weather.pm10)})
+                </span>
+              </span>
             </p>
           </div>
           <OpenInNew sx={{ fontSize: 16 }} className="text-[#5A6B66] shrink-0" />
