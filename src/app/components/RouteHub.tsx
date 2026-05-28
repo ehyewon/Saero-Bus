@@ -18,6 +18,12 @@ import { HomePage } from './HomePage';
 import { ActiveTripCard } from './ActiveTripCard';
 import { loadUpcomingTrip, type UpcomingTrip } from '../lib/upcoming';
 import { clearActiveTrip } from '../lib/activeTrip';
+import {
+  loadMockWeather,
+  pickWeatherTip,
+  WEATHER_LABELS,
+  CONDITION_ICONS,
+} from '../lib/weather';
 
 interface Tile {
   id: 'route' | 'bus' | 'map' | 'alarm';
@@ -164,6 +170,9 @@ export function RouteHub() {
     return { daypart, line: pickStableGreeting(daypart) };
   });
   const DaypartIcon = DAYPART_META[greeting.daypart].Icon;
+  const [weather] = useState(() => loadMockWeather());
+  const weatherTip = useMemo(() => pickWeatherTip(weather), [weather]);
+  const ConditionIcon = CONDITION_ICONS[weather.condition];
   const urgent = useMemo(() => {
     if (!upcoming) return false;
     const remaining = minutesUntilArrival(upcoming.arrivalTime);
@@ -230,23 +239,23 @@ export function RouteHub() {
         </div>
 
         {/* Greeting card — time-of-day message keyed to the user's nickname */}
-        <div className="mt-5 rounded-3xl bg-gradient-to-br from-[#B8E0D2] to-[#EAF4F0] px-6 py-6 shadow-sm text-[#14322E] relative overflow-hidden">
+        <div className="mt-5 rounded-3xl bg-gradient-to-br from-[#B8E0D2] to-[#EAF4F0] px-5 py-4 shadow-sm text-[#14322E] relative overflow-hidden">
           <div className="flex items-center gap-3">
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1.5 text-[12px] font-semibold text-[#005C42]">
+              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#005C42]">
                 {urgent ? (
                   <>
-                    <PriorityHigh sx={{ fontSize: 16 }} />
+                    <PriorityHigh sx={{ fontSize: 14 }} />
                     <span>지금 출발</span>
                   </>
                 ) : (
                   <>
-                    <DaypartIcon sx={{ fontSize: 16 }} />
+                    <DaypartIcon sx={{ fontSize: 14 }} />
                     <span>{DAYPART_META[greeting.daypart].label}</span>
                   </>
                 )}
               </div>
-              <p className="mt-1.5 text-[22px] leading-[1.3] font-extrabold">
+              <p className="mt-1 text-[19px] leading-[1.3] font-extrabold">
                 {nickname ? `${nickname}님! ` : '안녕하세요! '}
                 {urgent ? '지금 나가야 해요' : greeting.line}
               </p>
@@ -258,11 +267,11 @@ export function RouteHub() {
               onError={(e) => {
                 (e.currentTarget as HTMLImageElement).style.visibility = 'hidden';
               }}
-              className="w-20 h-20 shrink-0 object-contain select-none"
+              className="w-16 h-16 shrink-0 object-contain select-none"
               animate={
                 urgent
                   ? { x: [0, -4, 4, -4, 4, 0], rotate: [0, -3, 3, -3, 3, 0] }
-                  : { y: [0, -6, 0] }
+                  : { y: [0, -5, 0] }
               }
               transition={{
                 duration: urgent ? 0.6 : 2.4,
@@ -271,6 +280,28 @@ export function RouteHub() {
                 ease: 'easeInOut',
               }}
             />
+          </div>
+        </div>
+
+        {/* Weather care card — small, glanceable, condition-aware tip */}
+        <div className="mt-3 rounded-2xl bg-white px-4 py-3 shadow-sm flex items-center gap-3">
+          <div
+            className="w-12 h-12 rounded-full flex items-center justify-center shrink-0"
+            style={{ backgroundColor: weatherTip.bg, color: weatherTip.accent }}
+          >
+            <weatherTip.Icon sx={{ fontSize: 26 }} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] font-semibold text-[#5A6B66] flex items-center gap-1">
+              <ConditionIcon sx={{ fontSize: 12 }} />
+              <span>
+                {Math.round(weather.tempC)}°C · {WEATHER_LABELS[weather.condition]}
+                {weather.pm10 >= 80 && weather.condition !== 'haze' && ' · 미세먼지 나쁨'}
+              </span>
+            </p>
+            <p className="text-[14px] font-extrabold text-[#14322E] mt-0.5 truncate">
+              {weatherTip.line}
+            </p>
           </div>
         </div>
 
