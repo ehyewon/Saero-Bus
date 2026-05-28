@@ -3,12 +3,7 @@ import {
   Place,
   Notifications,
   Search,
-  Home,
-  School,
-  Train,
-  Business,
   ArrowBack,
-  Close,
 } from '@mui/icons-material';
 import { ActiveTripCard } from './ActiveTripCard';
 
@@ -24,7 +19,6 @@ interface DepartureResultProps {
   onClear?: () => void;
   /** Cancel the trip + return all the way to the hub */
   onEnd?: () => void;
-  onSelectQuickPlace?: (label: string) => void;
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -35,18 +29,6 @@ const fmtClockKorean = (d: Date) => {
   return `${isPm ? '오후' : '오전'} ${h12}:${pad(d.getMinutes())}`;
 };
 
-interface Quick {
-  id: string;
-  Icon: typeof Home;
-  label: string;
-}
-const QUICK: Quick[] = [
-  { id: 'home', Icon: Home, label: '집' },
-  { id: 'school', Icon: School, label: '전북대' },
-  { id: 'station', Icon: Train, label: '전주역' },
-  { id: 'city', Icon: Business, label: '시청' },
-];
-
 export function DepartureResult({
   destination,
   arrivalTime,
@@ -56,7 +38,6 @@ export function DepartureResult({
   onBack,
   onClear,
   onEnd,
-  onSelectQuickPlace,
 }: DepartureResultProps) {
   const [now, setNow] = useState<Date>(new Date());
 
@@ -97,6 +78,7 @@ export function DepartureResult({
             arrivalTime={arrivalTime}
             homeLabel={homeLabel}
             destinationLabel={destinationLabel}
+            onEnd={onEnd}
           />
         </div>
 
@@ -107,48 +89,7 @@ export function DepartureResult({
           className="mt-4 w-full card-grad rounded-2xl py-4 flex items-center justify-center gap-2 text-gray-800 shadow-sm"
         >
           <Search />
-          <span className="text-sm font-semibold">다른 곳으로 가기</span>
-        </button>
-
-        {/* Frequent places */}
-        <div className="mt-5">
-          <p className="text-sm text-gray-700 font-semibold mb-2">자주 가는 곳</p>
-          <div className="grid grid-cols-2 gap-2">
-            {QUICK.map((q) => {
-              const Icon = q.Icon;
-              return (
-                <button
-                  key={q.id}
-                  type="button"
-                  onClick={() => onSelectQuickPlace?.(q.label)}
-                  className="card-grad rounded-xl py-4 px-4 flex items-center gap-3 text-left shadow-sm"
-                >
-                  <Icon className="text-gray-700" />
-                  <span className="text-sm text-gray-900 font-semibold">{q.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* End-trip button */}
-        {onEnd && (
-          <button
-            type="button"
-            onClick={onEnd}
-            className="mt-4 w-full rounded-xl py-3 flex items-center justify-center gap-1.5 text-sm font-semibold text-gray-800 bg-white border-2 border-gray-500"
-          >
-            <Close sx={{ fontSize: 18 }} />
-            경로 안내 종료
-          </button>
-        )}
-
-        {/* Footer link */}
-        <button
-          type="button"
-          className="mt-5 w-full text-center text-sm text-gray-600"
-        >
-          내 주변 버스 실시간 보기
+          <span className="text-sm font-semibold">경로 변경하기</span>
         </button>
       </div>
     </div>

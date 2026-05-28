@@ -5,12 +5,13 @@ import {
   Place,
   Search,
   History,
-  Star,
+  Close,
 } from '@mui/icons-material';
 import { WheelTimePicker } from './WheelTimePicker';
 import {
   loadRecentPlaces,
   pushRecentPlace,
+  removeRecentPlace,
   type RecentPlace,
 } from './RecentPlacesSection';
 import { DepartureResult } from './DepartureResult';
@@ -35,22 +36,6 @@ const formatKoreanTime = (hhmm: string) => {
   return `오늘 ${isPm ? '오후' : '오전'} ${h12}:${pad(m)}`;
 };
 
-// Pinned favorite (just an example; uses the same storage as QuickActions if present)
-function loadPinnedFavorite(): RecentPlace | null {
-  try {
-    const raw = localStorage.getItem('favoritePlaces');
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed[0]) {
-      const p = parsed[0];
-      return { name: p.name, address: p.address };
-    }
-  } catch {
-    /* ignore */
-  }
-  return null;
-}
-
 export function HomePage({ onBack }: HomePageProps = {}) {
   const [origin, setOrigin] = useState('');
   const [destination, setDestination] = useState('');
@@ -59,11 +44,9 @@ export function HomePage({ onBack }: HomePageProps = {}) {
   const [time, setTime] = useState('09:00');
   const [showResults, setShowResults] = useState(false);
   const [recents, setRecents] = useState<RecentPlace[]>([]);
-  const [pinned, setPinned] = useState<RecentPlace | null>(null);
 
   useEffect(() => {
     setRecents(loadRecentPlaces());
-    setPinned(loadPinnedFavorite());
     // Restore in-progress trip so returning to this screen shows the result again
     const trip = loadActiveTrip();
     if (trip) {
@@ -86,6 +69,11 @@ export function HomePage({ onBack }: HomePageProps = {}) {
 
   const pickRecent = (place: RecentPlace) => {
     setDestination(place.name || place.address);
+  };
+
+  const deleteRecent = (address: string) => {
+    removeRecentPlace(address);
+    setRecents(loadRecentPlaces());
   };
 
   const pickPlace = (place: PlaceSearchResult) => {
@@ -114,13 +102,8 @@ export function HomePage({ onBack }: HomePageProps = {}) {
   };
 
   const list = useMemo(() => {
-    const items: Array<RecentPlace & { kind: 'recent' | 'fav' }> = recents.map((r) => ({
-      ...r,
-      kind: 'recent',
-    }));
-    if (pinned) items.push({ ...pinned, kind: 'fav' });
-    return items;
-  }, [recents, pinned]);
+    return recents;
+  }, [recents]);
 
   const endTrip = () => {
     clearActiveTrip();
@@ -142,12 +125,6 @@ export function HomePage({ onBack }: HomePageProps = {}) {
           setShowResults(false);
         }}
         onEnd={endTrip}
-        onSelectQuickPlace={(label) => {
-          clearActiveTrip();
-          setOrigin('');
-          setDestination(label);
-          setShowResults(false);
-        }}
       />
     );
   }
@@ -266,24 +243,32 @@ export function HomePage({ onBack }: HomePageProps = {}) {
           ) : (
             <div className="card-grad rounded-2xl shadow-md divide-y divide-gray-100 overflow-y-auto" style={{ maxHeight: 5 * 64 }}>
               {list.map((item, i) => (
-                <button
-                  key={`${item.kind}-${item.address}-${i}`}
-                  type="button"
-                  onClick={() => pickRecent(item)}
+                <div
+                  key={`${item.address}-${i}`}
                   className="w-full flex items-center gap-3 px-4 py-3 text-left"
                 >
-                  <div className="w-10 h-10 rounded-full bg-emerald-50 flex items-center justify-center shrink-0">
-                    {item.kind === 'fav' ? (
-                      <Star className="text-emerald-700" />
-                    ) : (
+                  <button
+                    type="button"
+                    onClick={() => pickRecent(item)}
+                    className="flex flex-1 items-center gap-3 text-left min-w-0"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-emerald-50 flex items-center justify-center shrink-0">
                       <History className="text-gray-500" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-bold text-gray-900 truncate">{item.name || item.address}</p>
-                    <p className="text-xs text-gray-500 truncate">{item.address}</p>
-                  </div>
-                </button>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-gray-900 truncate">{item.name || item.address}</p>
+                      <p className="text-xs text-gray-500 truncate">{item.address}</p>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteRecent(item.address)}
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 shrink-0"
+                    aria-label={`${item.name || item.address} 삭제`}
+                  >
+                    <Close sx={{ fontSize: 18 }} />
+                  </button>
+                </div>
               ))}
             </div>
           )}

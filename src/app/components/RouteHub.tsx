@@ -187,8 +187,10 @@ export function RouteHub() {
         {upcoming && (
           <div className="mt-5">
             <ActiveTripCard
+              origin={upcoming.origin}
               destination={upcoming.destination}
               arrivalTime={upcoming.arrivalTime}
+              showInsights={false}
             />
           </div>
         )}
