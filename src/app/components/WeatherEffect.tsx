@@ -34,7 +34,7 @@ function RainParticles() {
             duration: 0.65 + (i % 5) * 0.12,
             delay: (i % 7) * 0.18,
             repeat: Infinity,
-            ease: 'linear',
+            ease: 'easeIn',
           }}
         />
       ))}
@@ -66,7 +66,7 @@ function SnowParticles() {
               duration: 3.5 + (i % 4),
               delay: (i % 6) * 0.4,
               repeat: Infinity,
-              ease: 'linear',
+              ease: 'easeIn',
             }}
           />
         );
