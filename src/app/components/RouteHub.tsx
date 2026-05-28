@@ -19,7 +19,6 @@ import {
 } from '@mui/icons-material';
 import { HomePage } from './HomePage';
 import { ActiveTripCard } from './ActiveTripCard';
-import { WeatherEffect } from './WeatherEffect';
 import { loadUpcomingTrip, type UpcomingTrip } from '../lib/upcoming';
 import { clearActiveTrip } from '../lib/activeTrip';
 import {
@@ -235,10 +234,9 @@ export function RouteHub() {
           target="_blank"
           rel="noopener noreferrer"
           aria-label="네이버 날씨 열기"
-          className="mt-5 block relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#B8E0D2] to-[#EAF4F0] px-5 py-4 shadow-sm text-[#14322E] hover:shadow-md active:scale-[0.99] transition"
+          className="mt-5 block rounded-3xl bg-gradient-to-br from-[#B8E0D2] to-[#EAF4F0] px-5 py-4 shadow-sm text-[#14322E] hover:shadow-md active:scale-[0.99] transition"
         >
-          <WeatherEffect condition={weather.condition} tempC={weather.tempC} pm10={weather.pm10} />
-          <div className="relative flex items-center gap-3">
+          <div className="flex items-center gap-3">
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#005C42]">
                 {urgent ? (
@@ -280,7 +278,7 @@ export function RouteHub() {
             />
           </div>
 
-          <div className="relative mt-3 pt-3 border-t border-white/70 flex items-center justify-between gap-2">
+          <div className="mt-3 pt-3 border-t border-white/70 flex items-center justify-between gap-2">
             <div className="flex items-baseline gap-2 flex-wrap text-[11px] text-[#5A6B66] min-w-0">
               <span className="flex items-baseline gap-1">
                 <ConditionIcon sx={{ fontSize: 14 }} className="self-center" />
