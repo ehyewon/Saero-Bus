@@ -64,6 +64,7 @@ interface SavedPlaces {
   home: RegisteredPlace | null;
   frequent: RegisteredPlace | null;
   arrivalTime: string;
+  arrivalDays: DayKey[];
   notificationEnabled: boolean;
   locationEnabled: boolean;
 }
@@ -196,11 +197,22 @@ function loadNaverMaps(): Promise<void> {
   return window.__saerobusNaverMapsPromise;
 }
 
-/** 30-minute time options, labelled in Korean (오전/오후). */
+/**
+ * Jeonju city-bus regular operating window (first bus 05:30, last bus 23:00 — see AIPage mock).
+ * Night routes exist but are excluded from onboarding to keep choices simple.
+ */
+const BUS_FIRST_HOUR = 5;
+const BUS_FIRST_MINUTE = 30;
+const BUS_LAST_HOUR = 23;
+const BUS_LAST_MINUTE = 0;
+
+/** 30-minute time options inside operating window, labelled in Korean (오전/오후). */
 const TIME_OPTIONS: string[] = (() => {
   const out: string[] = [];
-  for (let h = 0; h < 24; h++) {
+  for (let h = BUS_FIRST_HOUR; h <= BUS_LAST_HOUR; h++) {
     for (const m of [0, 30]) {
+      if (h === BUS_FIRST_HOUR && m < BUS_FIRST_MINUTE) continue;
+      if (h === BUS_LAST_HOUR && m > BUS_LAST_MINUTE) continue;
       const period = h < 12 ? '오전' : '오후';
       const h12 = h % 12 === 0 ? 12 : h % 12;
       out.push(`${period} ${h12}:${String(m).padStart(2, '0')}`);
@@ -208,6 +220,18 @@ const TIME_OPTIONS: string[] = (() => {
   }
   return out;
 })();
+
+type DayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
+const DAYS: DayKey[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const DAY_LABELS: Record<DayKey, string> = {
+  mon: '월', tue: '화', wed: '수', thu: '목', fri: '금', sat: '토', sun: '일',
+};
+const WEEKDAYS: DayKey[] = ['mon', 'tue', 'wed', 'thu', 'fri'];
+const WEEKEND: DayKey[] = ['sat', 'sun'];
+
+function sameDaySet(a: DayKey[], preset: DayKey[]) {
+  return a.length === preset.length && preset.every((d) => a.includes(d));
+}
 
 const ONBOARDING_STEPS = ['nickname', 'purpose', 'places', 'arrivalTime', 'permissions', 'account', 'summary'] as const;
 type OnboardingStep = (typeof ONBOARDING_STEPS)[number];
@@ -242,6 +266,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   const [home, setHome] = useState<RegisteredPlace | null>(null);
   const [frequent, setFrequent] = useState<RegisteredPlace | null>(null);
   const [arrivalTime, setArrivalTime] = useState('오전 9:00');
+  const [arrivalDays, setArrivalDays] = useState<DayKey[]>(WEEKDAYS);
   const [notificationEnabled, setNotificationEnabled] = useState(true);
   const [locationEnabled, setLocationEnabled] = useState(true);
   const [email, setEmail] = useState('');
@@ -259,7 +284,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     (step === 'nickname' && trimmedNickname.length > 0) ||
     (step === 'purpose' && Boolean(purpose)) ||
     step === 'places' ||
-    step === 'arrivalTime' ||
+    (step === 'arrivalTime' && arrivalDays.length > 0) ||
     step === 'permissions' ||
     (step === 'account' && accountReady) ||
     step === 'summary';
@@ -272,6 +297,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
         home,
         frequent,
         arrivalTime,
+        arrivalDays,
         notificationEnabled,
         locationEnabled,
       });
@@ -432,16 +458,83 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               몇 시까지<br />도착해야 하나요?
             </h1>
             <p className="mt-3 text-[15px] leading-relaxed text-gray-500">
-              평소 도착 시간을 기준으로<br />출발 시각을 추천할게요.
+              평소 도착 시간과 요일을 알려주시면<br />출발 시각을 추천해드릴게요.
             </p>
 
-            <div className="mt-8 rounded-2xl border border-gray-200 bg-white px-5 py-5">
-              <p className="text-xs text-gray-500">보통 도착 시각</p>
+            <div className="mt-7">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-[#5A6B66]">요일</p>
+                <div className="flex items-center gap-1">
+                  {([
+                    { label: '평일', preset: WEEKDAYS },
+                    { label: '주말', preset: WEEKEND },
+                    { label: '매일', preset: DAYS },
+                  ] as const).map(({ label, preset }) => {
+                    const active = sameDaySet(arrivalDays, preset);
+                    return (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() => setArrivalDays([...preset])}
+                        className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-colors ${
+                          active
+                            ? 'bg-[#B8E0D2] text-[#005C42]'
+                            : 'bg-white text-[#5A6B66] border border-gray-200'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {DAYS.map((d) => {
+                  const active = arrivalDays.includes(d);
+                  const isWeekend = d === 'sat' || d === 'sun';
+                  return (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() =>
+                        setArrivalDays((prev) =>
+                          prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d]
+                        )
+                      }
+                      className={`flex-1 h-11 rounded-xl text-sm font-extrabold transition-all ${
+                        active
+                          ? 'bg-[#007956] text-white shadow-sm active:scale-[0.97]'
+                          : `bg-white border border-gray-200 active:scale-[0.97] ${
+                              isWeekend ? 'text-[#5A6B66]' : 'text-[#14322E]'
+                            }`
+                      }`}
+                      aria-pressed={active}
+                      aria-label={`${DAY_LABELS[d]}요일`}
+                    >
+                      {DAY_LABELS[d]}
+                    </button>
+                  );
+                })}
+              </div>
+              {arrivalDays.length === 0 && (
+                <p className="mt-2 text-[11px] text-[#D8453B]">
+                  요일을 최소 한 개 선택해주세요.
+                </p>
+              )}
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-gray-200 bg-white px-5 py-5">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold text-[#5A6B66]">보통 도착 시각</p>
+                <p className="text-[10px] text-[#5A6B66]">
+                  운행 05:30 ~ 23:00
+                </p>
+              </div>
               <div className="relative mt-3">
                 <select
                   value={arrivalTime}
                   onChange={(e) => setArrivalTime(e.target.value)}
-                  className="w-full appearance-none bg-transparent pr-8 text-[28px] font-extrabold text-gray-900 focus:outline-none cursor-pointer"
+                  className="w-full appearance-none bg-transparent pr-8 text-[28px] font-extrabold text-[#14322E] focus:outline-none cursor-pointer"
                   aria-label="보통 도착 시각"
                 >
                   {TIME_OPTIONS.map((t) => (
@@ -449,7 +542,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                   ))}
                 </select>
                 <KeyboardArrowDown
-                  className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none"
+                  className="absolute right-0 top-1/2 -translate-y-1/2 text-[#5A6B66] pointer-events-none"
                   sx={{ fontSize: 22 }}
                 />
               </div>
@@ -600,6 +693,22 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               <SummaryRow label="집" value={home?.address ?? '나중에 등록'} />
               <SummaryRow label="자주 가는 곳" value={frequent?.address ?? '나중에 등록'} />
               <SummaryRow label="도착 시각" value={arrivalTime} />
+              <SummaryRow
+                label="요일"
+                value={
+                  sameDaySet(arrivalDays, DAYS)
+                    ? '매일'
+                    : sameDaySet(arrivalDays, WEEKDAYS)
+                    ? '평일'
+                    : sameDaySet(arrivalDays, WEEKEND)
+                    ? '주말'
+                    : arrivalDays.length === 0
+                    ? '미선택'
+                    : DAYS.filter((d) => arrivalDays.includes(d))
+                        .map((d) => DAY_LABELS[d])
+                        .join(' · ')
+                }
+              />
               <SummaryRow
                 label="알림"
                 value={`${notificationEnabled ? '출발 알림 켬' : '출발 알림 끔'} · ${
