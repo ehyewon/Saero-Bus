@@ -113,6 +113,7 @@ export function RouteHub() {
               origin={upcoming.origin}
               destination={upcoming.destination}
               arrivalTime={upcoming.arrivalTime}
+              showInsights={false}
             />
           </div>
         )}

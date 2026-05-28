@@ -89,7 +89,7 @@ export function DepartureResult({
           className="mt-4 w-full card-grad rounded-2xl py-4 flex items-center justify-center gap-2 text-gray-800 shadow-sm"
         >
           <Search />
-          <span className="text-sm font-semibold">다른 곳으로 가기</span>
+          <span className="text-sm font-semibold">경로 변경하기</span>
         </button>
       </div>
     </div>

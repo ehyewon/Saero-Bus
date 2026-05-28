@@ -5,7 +5,6 @@ import {
   Place,
   Search,
   History,
-  Star,
   Close,
 } from '@mui/icons-material';
 import { WheelTimePicker } from './WheelTimePicker';
@@ -37,35 +36,6 @@ const formatKoreanTime = (hhmm: string) => {
   return `오늘 ${isPm ? '오후' : '오전'} ${h12}:${pad(m)}`;
 };
 
-// Pinned favorite (just an example; uses the same storage as QuickActions if present)
-function loadPinnedFavorite(): RecentPlace | null {
-  try {
-    const raw = localStorage.getItem('favoritePlaces');
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed[0]) {
-      const p = parsed[0];
-      return { name: p.name, address: p.address };
-    }
-  } catch {
-    /* ignore */
-  }
-  return null;
-}
-
-function removePinnedFavorite() {
-  try {
-    const raw = localStorage.getItem('favoritePlaces');
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      localStorage.setItem('favoritePlaces', JSON.stringify(parsed.slice(1)));
-    }
-  } catch {
-    /* ignore */
-  }
-}
-
 export function HomePage({ onBack }: HomePageProps = {}) {
   const [origin, setOrigin] = useState('');
   const [destination, setDestination] = useState('');
@@ -74,11 +44,9 @@ export function HomePage({ onBack }: HomePageProps = {}) {
   const [time, setTime] = useState('09:00');
   const [showResults, setShowResults] = useState(false);
   const [recents, setRecents] = useState<RecentPlace[]>([]);
-  const [pinned, setPinned] = useState<RecentPlace | null>(null);
 
   useEffect(() => {
     setRecents(loadRecentPlaces());
-    setPinned(loadPinnedFavorite());
     // Restore in-progress trip so returning to this screen shows the result again
     const trip = loadActiveTrip();
     if (trip) {
@@ -104,13 +72,8 @@ export function HomePage({ onBack }: HomePageProps = {}) {
   };
 
   const deleteRecent = (address: string) => {
-    if (pinned?.address === address) {
-      removePinnedFavorite();
-      setPinned(loadPinnedFavorite());
-    } else {
-      removeRecentPlace(address);
-      setRecents(loadRecentPlaces());
-    }
+    removeRecentPlace(address);
+    setRecents(loadRecentPlaces());
   };
 
   const pickPlace = (place: PlaceSearchResult) => {
@@ -139,13 +102,8 @@ export function HomePage({ onBack }: HomePageProps = {}) {
   };
 
   const list = useMemo(() => {
-    const items: Array<RecentPlace & { kind: 'recent' | 'fav' }> = recents.map((r) => ({
-      ...r,
-      kind: 'recent',
-    }));
-    if (pinned) items.push({ ...pinned, kind: 'fav' });
-    return items;
-  }, [recents, pinned]);
+    return recents;
+  }, [recents]);
 
   const endTrip = () => {
     clearActiveTrip();
@@ -286,7 +244,7 @@ export function HomePage({ onBack }: HomePageProps = {}) {
             <div className="card-grad rounded-2xl shadow-md divide-y divide-gray-100 overflow-y-auto" style={{ maxHeight: 5 * 64 }}>
               {list.map((item, i) => (
                 <div
-                  key={`${item.kind}-${item.address}-${i}`}
+                  key={`${item.address}-${i}`}
                   className="w-full flex items-center gap-3 px-4 py-3 text-left"
                 >
                   <button
@@ -295,11 +253,7 @@ export function HomePage({ onBack }: HomePageProps = {}) {
                     className="flex flex-1 items-center gap-3 text-left min-w-0"
                   >
                     <div className="w-10 h-10 rounded-full bg-emerald-50 flex items-center justify-center shrink-0">
-                      {item.kind === 'fav' ? (
-                        <Star className="text-emerald-700" />
-                      ) : (
-                        <History className="text-gray-500" />
-                      )}
+                      <History className="text-gray-500" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-bold text-gray-900 truncate">{item.name || item.address}</p>
