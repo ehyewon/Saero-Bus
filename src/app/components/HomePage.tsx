@@ -15,12 +15,15 @@ import {
 } from './RecentPlacesSection';
 import { DepartureResult } from './DepartureResult';
 import { saveActiveTrip, clearActiveTrip, loadActiveTrip } from '../lib/activeTrip';
+import { type PlaceSearchResult } from '../lib/placeSearch';
+import { PlacePickerPage } from './PlacePickerPage';
 
 interface HomePageProps {
   onBack?: () => void;
 }
 
 type Mode = 'arrive' | 'depart';
+type SearchField = 'origin' | 'destination';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -49,7 +52,9 @@ function loadPinnedFavorite(): RecentPlace | null {
 }
 
 export function HomePage({ onBack }: HomePageProps = {}) {
+  const [origin, setOrigin] = useState('');
   const [destination, setDestination] = useState('');
+  const [pickingField, setPickingField] = useState<SearchField | null>(null);
   const [mode, setMode] = useState<Mode>('arrive');
   const [time, setTime] = useState('09:00');
   const [showResults, setShowResults] = useState(false);
@@ -62,6 +67,7 @@ export function HomePage({ onBack }: HomePageProps = {}) {
     // Restore in-progress trip so returning to this screen shows the result again
     const trip = loadActiveTrip();
     if (trip) {
+      setOrigin(trip.origin || '');
       setDestination(trip.destination);
       setTime(trip.arrivalTime);
       setShowResults(true);
@@ -74,12 +80,37 @@ export function HomePage({ onBack }: HomePageProps = {}) {
     if (!canSubmit) return;
     pushRecentPlace({ name: destination, address: destination });
     setRecents(loadRecentPlaces());
-    saveActiveTrip({ destination, arrivalTime: time });
+    saveActiveTrip({ origin: origin.trim(), destination, arrivalTime: time });
     setShowResults(true);
   };
 
   const pickRecent = (place: RecentPlace) => {
-    setDestination(place.address);
+    setDestination(place.name || place.address);
+  };
+
+  const pickPlace = (place: PlaceSearchResult) => {
+    if (pickingField === 'origin') {
+      setOrigin(place.name);
+      setPickingField(null);
+      return;
+    }
+    setDestination(place.name);
+    pushRecentPlace({ name: place.name, address: place.address });
+    setRecents(loadRecentPlaces());
+    setPickingField(null);
+  };
+
+  const pickManualPlace = (field: SearchField, value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      setPickingField(field);
+      return;
+    }
+    if (field === 'origin') {
+      setOrigin(value);
+      return;
+    }
+    setDestination(value);
   };
 
   const list = useMemo(() => {
@@ -94,6 +125,7 @@ export function HomePage({ onBack }: HomePageProps = {}) {
   const endTrip = () => {
     clearActiveTrip();
     setShowResults(false);
+    setOrigin('');
     setDestination('');
     window.dispatchEvent(new CustomEvent('showToast', { detail: '안내를 종료합니다.' }));
   };
@@ -101,6 +133,7 @@ export function HomePage({ onBack }: HomePageProps = {}) {
   if (showResults) {
     return (
       <DepartureResult
+        origin={origin.trim() || '출발지 미설정'}
         destination={destination}
         arrivalTime={time}
         onBack={onBack ?? (() => setShowResults(false))}
@@ -111,9 +144,21 @@ export function HomePage({ onBack }: HomePageProps = {}) {
         onEnd={endTrip}
         onSelectQuickPlace={(label) => {
           clearActiveTrip();
+          setOrigin('');
           setDestination(label);
           setShowResults(false);
         }}
+      />
+    );
+  }
+
+  if (pickingField) {
+    return (
+      <PlacePickerPage
+        field={pickingField}
+        initialValue={pickingField === 'origin' ? origin : destination}
+        onCancel={() => setPickingField(null)}
+        onSelect={pickPlace}
       />
     );
   }
@@ -139,19 +184,39 @@ export function HomePage({ onBack }: HomePageProps = {}) {
           <div className="card-grad rounded-3xl p-4 shadow-md">
             <div className="flex items-center gap-3 py-2">
               <Adjust className="text-gray-700" />
-              <span className="text-sm text-gray-800 truncate">현재 위치 · 덕진구 금암동</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-semibold text-gray-400 leading-none mb-1">출발지</p>
+                <button
+                  type="button"
+                  onClick={() => setPickingField('origin')}
+                  className={`w-full text-left text-sm truncate ${
+                    origin ? 'text-gray-900' : 'text-gray-400'
+                  }`}
+                >
+                  {origin || '출발지를 입력하세요'}
+                </button>
+              </div>
             </div>
             <div className="h-px bg-gray-100" />
             <div className="flex items-center gap-3 py-2">
               <Place className="text-emerald-700" />
-              <input
-                type="text"
-                value={destination}
-                onChange={(e) => setDestination(e.target.value)}
-                placeholder="목적지를 입력하세요"
-                className="flex-1 outline-none text-sm bg-transparent min-w-0 placeholder:text-gray-400"
-              />
-              <Search className="text-gray-400" />
+              <button
+                type="button"
+                onClick={() => setPickingField('destination')}
+                className={`flex-1 min-w-0 text-left text-sm truncate ${
+                  destination ? 'text-gray-900' : 'text-gray-400'
+                }`}
+              >
+                {destination || '목적지를 입력하세요'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPickingField('destination')}
+                className="text-gray-400"
+                aria-label="목적지 검색"
+              >
+                <Search />
+              </button>
             </div>
           </div>
         </div>
