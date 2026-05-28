@@ -20,6 +20,14 @@ export interface Weather {
   humidity: number;
 }
 
+/** Korean PM10 air-quality bands. */
+export function pm10Grade(pm: number): '좋음' | '보통' | '나쁨' | '매우 나쁨' {
+  if (pm <= 30) return '좋음';
+  if (pm <= 80) return '보통';
+  if (pm <= 150) return '나쁨';
+  return '매우 나쁨';
+}
+
 export const WEATHER_LABELS: Record<WeatherCondition, string> = {
   sunny: '맑음',
   cloudy: '흐림',

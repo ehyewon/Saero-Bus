@@ -13,6 +13,7 @@ import {
   Bedtime,
   DarkMode,
   PriorityHigh,
+  OpenInNew,
 } from '@mui/icons-material';
 import { HomePage } from './HomePage';
 import { ActiveTripCard } from './ActiveTripCard';
@@ -21,6 +22,7 @@ import { clearActiveTrip } from '../lib/activeTrip';
 import {
   loadMockWeather,
   pickWeatherTip,
+  pm10Grade,
   WEATHER_LABELS,
   CONDITION_ICONS,
 } from '../lib/weather';
@@ -283,8 +285,14 @@ export function RouteHub() {
           </div>
         </div>
 
-        {/* Weather care card — small, glanceable, condition-aware tip */}
-        <div className="mt-3 rounded-2xl bg-white px-4 py-3 shadow-sm flex items-center gap-3">
+        {/* Weather care card — small, glanceable, condition-aware tip. Opens NAVER weather. */}
+        <a
+          href="https://m.weather.naver.com/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-3 rounded-2xl bg-white px-4 py-3 shadow-sm flex items-center gap-3 hover:shadow-md active:scale-[0.99] transition"
+          aria-label="네이버 날씨 열기"
+        >
           <div
             className="w-12 h-12 rounded-full flex items-center justify-center shrink-0"
             style={{ backgroundColor: weatherTip.bg, color: weatherTip.accent }}
@@ -294,16 +302,16 @@ export function RouteHub() {
           <div className="flex-1 min-w-0">
             <p className="text-[11px] font-semibold text-[#5A6B66] flex items-center gap-1">
               <ConditionIcon sx={{ fontSize: 12 }} />
-              <span>
-                {Math.round(weather.tempC)}°C · {WEATHER_LABELS[weather.condition]}
-                {weather.pm10 >= 80 && weather.condition !== 'haze' && ' · 미세먼지 나쁨'}
+              <span className="truncate">
+                {Math.round(weather.tempC)}°C · {WEATHER_LABELS[weather.condition]} · 미세먼지 {weather.pm10}㎍/㎥ ({pm10Grade(weather.pm10)})
               </span>
             </p>
             <p className="text-[14px] font-extrabold text-[#14322E] mt-0.5 truncate">
               {weatherTip.line}
             </p>
           </div>
-        </div>
+          <OpenInNew sx={{ fontSize: 16 }} className="text-[#5A6B66] shrink-0" />
+        </a>
 
         {/* Active / upcoming trip — above the tile grid */}
         {upcoming && (
