@@ -70,15 +70,15 @@ export function AgentGuidance({ destination, arrivalTime }: AgentGuidanceProps) 
   } else if (minutesUntilLeave <= 0) {
     headline = '지금 출발하세요!';
     cta = '바로 정류장으로 이동';
-    toneClass = 'from-red-500 to-rose-600';
+    toneClass = 'from-[#ED7D31] to-[#D8453B]';
   } else if (minutesUntilLeave <= 5) {
     headline = `${minutesUntilLeave}분 후 출발하세요`;
     cta = '곧 출발 준비';
-    toneClass = 'from-orange-500 to-amber-500';
+    toneClass = 'from-[#F4A82B] to-[#ED7D31]';
   } else {
     headline = `${minutesUntilLeave}분 후 출발하세요`;
     cta = '여유 있게 준비하세요';
-    toneClass = 'from-blue-600 to-indigo-600';
+    toneClass = 'from-[#00A878] to-[#007956]';
   }
 
   // Bus position ticks down over time. Floor to 0 (i.e. "도착").

@@ -62,7 +62,7 @@ export function RouteHub() {
   }
 
   return (
-    <div className="size-full overflow-auto bg-[#FAFAFA]">
+    <div className="size-full overflow-auto bg-[#EAF4F0]">
       <div className="max-w-md mx-auto min-h-full px-4 pt-2 pb-20">
         {/* Header */}
         <div className="flex items-center justify-between">

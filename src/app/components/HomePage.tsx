@@ -164,7 +164,7 @@ export function HomePage({ onBack }: HomePageProps = {}) {
   }
 
   return (
-    <div className="size-full overflow-auto bg-[#FAFAFA]">
+    <div className="size-full overflow-auto bg-[#EAF4F0]">
       <div className="max-w-md mx-auto min-h-full pb-28">
         {/* Header */}
         <div className="px-4 pt-2 pb-2 flex items-center gap-3">

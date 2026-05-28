@@ -48,7 +48,7 @@ export default function App() {
   }
 
   return (
-    <div className="size-full bg-[#FAFAFA]">
+    <div className="size-full bg-[#EAF4F0]">
       {activeTab === 0 && <RouteHub />}
       {activeTab === 1 && <BusPage />}
       {activeTab === 2 && <MapPage />}

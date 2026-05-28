@@ -66,7 +66,7 @@ export function DepartureResult({
   }, []);
 
   return (
-    <div className="size-full overflow-auto text-gray-900 bg-[#FAFAFA]">
+    <div className="size-full overflow-auto text-gray-900 bg-[#EAF4F0]">
       <div className="max-w-md mx-auto min-h-full px-4 pt-4 pb-24">
         {/* Header */}
         <div className="flex items-center justify-between">

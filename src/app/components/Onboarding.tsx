@@ -11,13 +11,34 @@ import {
   MoreHoriz,
   NotificationsActive,
   MyLocation,
+  MailOutlined,
+  LockOutlined,
+  Visibility,
+  VisibilityOff,
 } from '@mui/icons-material';
 
 /** localStorage keys — bump the suffix if the onboarding flow changes materially. */
 export const ONBOARDING_KEY = 'saerobus.onboarded.v2';
 const PLACES_KEY = 'saerobus.places.v1';
 const PROFILE_KEY = 'saerobus.profile.v1';
+const ACCOUNT_KEY = 'saerobus.account.v1';
 const FAVORITE_PLACES_KEY = 'favoritePlaces';
+
+type SocialProvider = 'kakao' | 'google';
+
+interface SavedAccount {
+  email: string;
+  password: string;
+  socialProvider: SocialProvider | null;
+}
+
+function saveAccount(account: SavedAccount) {
+  try {
+    localStorage.setItem(ACCOUNT_KEY, JSON.stringify(account));
+  } catch {
+    /* ignore — non-critical persistence */
+  }
+}
 
 /** True once the user has finished onboarding (so we can skip it on return). */
 export function hasCompletedOnboarding(): boolean {
@@ -188,7 +209,7 @@ const TIME_OPTIONS: string[] = (() => {
   return out;
 })();
 
-const ONBOARDING_STEPS = ['nickname', 'purpose', 'places', 'arrivalTime', 'permissions', 'summary'] as const;
+const ONBOARDING_STEPS = ['nickname', 'purpose', 'places', 'arrivalTime', 'permissions', 'account', 'summary'] as const;
 type OnboardingStep = (typeof ONBOARDING_STEPS)[number];
 type TravelPurpose = 'school' | 'work' | 'academy' | 'other';
 
@@ -223,15 +244,24 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   const [arrivalTime, setArrivalTime] = useState('오전 9:00');
   const [notificationEnabled, setNotificationEnabled] = useState(true);
   const [locationEnabled, setLocationEnabled] = useState(true);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [socialProvider, setSocialProvider] = useState<SocialProvider | null>(null);
   const activeStepIndex = ONBOARDING_STEPS.indexOf(step);
   const trimmedNickname = nickname.trim();
+  const trimmedEmail = email.trim();
   const selectedPurpose = PURPOSE_OPTIONS.find((item) => item.id === purpose);
+  const emailLooksValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail);
+  const credentialsReady = emailLooksValid && password.length >= 6;
+  const accountReady = credentialsReady || socialProvider !== null;
   const canGoNext =
     (step === 'nickname' && trimmedNickname.length > 0) ||
     (step === 'purpose' && Boolean(purpose)) ||
     step === 'places' ||
     step === 'arrivalTime' ||
     step === 'permissions' ||
+    (step === 'account' && accountReady) ||
     step === 'summary';
 
   const finish = (save: boolean) => {
@@ -245,9 +275,18 @@ export function Onboarding({ onComplete }: OnboardingProps) {
         notificationEnabled,
         locationEnabled,
       });
+      saveAccount({
+        email: trimmedEmail,
+        password,
+        socialProvider,
+      });
     }
     markOnboardingSeen();
     onComplete();
+  };
+
+  const pickSocial = (provider: SocialProvider) => {
+    setSocialProvider((current) => (current === provider ? null : provider));
   };
 
   const goNext = () => {
@@ -262,7 +301,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   };
 
   return (
-    <div className="fixed inset-0 overflow-auto overflow-x-hidden bg-[#EAF1F6]">
+    <div className="fixed inset-0 overflow-auto overflow-x-hidden bg-[#EAF4F0]">
       <div className="w-full max-w-md mx-auto min-h-full box-border px-6 pt-5 pb-8 flex flex-col">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5">
@@ -270,7 +309,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               <span
                 key={item}
                 className={`h-2 rounded-full transition-all ${
-                  index === activeStepIndex ? 'w-6 bg-[#4A7CA8]' : 'w-2 bg-gray-300'
+                  index === activeStepIndex ? 'w-6 bg-[#007956]' : 'w-2 bg-gray-300'
                 }`}
               />
             ))}
@@ -316,7 +355,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               />
               <div className="mt-3 flex items-center justify-between gap-3 text-xs">
                 <span className="text-gray-400">한글, 영어만 입력할 수 있어요</span>
-                <span className={trimmedNickname.length > 0 ? 'text-[#4A7CA8]' : 'text-gray-300'}>
+                <span className={trimmedNickname.length > 0 ? 'text-[#007956]' : 'text-gray-300'}>
                   {trimmedNickname.length}/16
                 </span>
               </div>
@@ -342,11 +381,11 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                     type="button"
                     onClick={() => setPurpose(id)}
                     className={`min-h-[128px] rounded-2xl border bg-white p-4 text-left transition-colors ${
-                      selected ? 'border-[#4A7CA8] ring-2 ring-[#4A7CA8]/20' : 'border-gray-200'
+                      selected ? 'border-[#007956] ring-2 ring-[#007956]/20' : 'border-gray-200'
                     }`}
                   >
                     <div className={`mb-3 flex h-10 w-10 items-center justify-center rounded-xl ${
-                      selected ? 'bg-[#4A7CA8] text-white' : 'bg-[#EAF1F6] text-[#4A7CA8]'
+                      selected ? 'bg-[#007956] text-white' : 'bg-[#EAF4F0] text-[#007956]'
                     }`}>
                       <Icon sx={{ fontSize: 23 }} />
                     </div>
@@ -446,6 +485,106 @@ export function Onboarding({ onComplete }: OnboardingProps) {
           </>
         )}
 
+        {step === 'account' && (
+          <>
+            <h1 className="mt-8 text-[28px] leading-[1.3] font-extrabold text-gray-900">
+              계정을<br />만들어주세요
+            </h1>
+            <p className="mt-3 text-[15px] leading-relaxed text-gray-500">
+              이메일과 비밀번호로 가입하거나<br />소셜 계정으로 빠르게 시작할 수 있어요.
+            </p>
+
+            <div className="mt-8 space-y-3">
+              <div className="bg-white rounded-2xl border border-gray-200 px-4 py-3 flex items-center gap-3">
+                <MailOutlined className="text-gray-500" fontSize="small" />
+                <input
+                  type="email"
+                  autoComplete="email"
+                  inputMode="email"
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    setSocialProvider(null);
+                  }}
+                  placeholder="이메일"
+                  className="flex-1 outline-none text-sm bg-transparent min-w-0 placeholder:text-gray-400"
+                />
+              </div>
+              <div className="bg-white rounded-2xl border border-gray-200 px-4 py-3 flex items-center gap-3">
+                <LockOutlined className="text-gray-500" fontSize="small" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="new-password"
+                  value={password}
+                  onChange={(e) => {
+                    setPassword(e.target.value);
+                    setSocialProvider(null);
+                  }}
+                  placeholder="비밀번호 (6자 이상)"
+                  className="flex-1 outline-none text-sm bg-transparent min-w-0 placeholder:text-gray-400"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  className="text-gray-400"
+                  aria-label={showPassword ? '비밀번호 숨기기' : '비밀번호 표시'}
+                >
+                  {showPassword ? <VisibilityOff fontSize="small" /> : <Visibility fontSize="small" />}
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-6 flex items-center gap-3">
+              <span className="flex-1 h-px bg-gray-200" />
+              <span className="text-xs text-gray-400">또는 소셜로 시작</span>
+              <span className="flex-1 h-px bg-gray-200" />
+            </div>
+
+            <div className="mt-4 space-y-3">
+              <button
+                type="button"
+                onClick={() => pickSocial('kakao')}
+                className={`w-full rounded-2xl py-3.5 text-sm font-bold flex items-center justify-center gap-2 transition-shadow ${
+                  socialProvider === 'kakao'
+                    ? 'bg-[#FEE500] text-[#191600] shadow-md ring-2 ring-[#191600]'
+                    : 'bg-[#FEE500] text-[#191600] shadow-sm active:scale-[0.99]'
+                }`}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+                  <path
+                    fill="currentColor"
+                    d="M12 3C6.477 3 2 6.582 2 11c0 2.84 1.86 5.33 4.66 6.76-.2.69-.71 2.43-.81 2.81-.13.47.17.46.36.34.15-.1 2.39-1.62 3.36-2.28.81.12 1.66.18 2.43.18 5.523 0 10-3.582 10-8s-4.477-8-10-8z"
+                  />
+                </svg>
+                {socialProvider === 'kakao' ? '카카오로 시작 (선택됨)' : '카카오로 시작'}
+              </button>
+              <button
+                type="button"
+                onClick={() => pickSocial('google')}
+                className={`w-full rounded-2xl py-3.5 text-sm font-bold flex items-center justify-center gap-2 bg-white text-gray-800 border transition-shadow ${
+                  socialProvider === 'google'
+                    ? 'border-gray-800 ring-2 ring-gray-800 shadow-md'
+                    : 'border-gray-200 shadow-sm active:scale-[0.99]'
+                }`}
+              >
+                <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
+                  <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z" />
+                  <path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z" />
+                  <path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238C29.211 35.091 26.715 36 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z" />
+                  <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.094 5.571.001-.001.002-.001.003-.002l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z" />
+                </svg>
+                {socialProvider === 'google' ? 'Google로 시작 (선택됨)' : 'Google로 시작'}
+              </button>
+            </div>
+
+            {!accountReady && (trimmedEmail.length > 0 || password.length > 0) && (
+              <p className="mt-4 text-xs text-gray-400">
+                이메일 형식과 6자 이상 비밀번호를 입력하거나, 소셜 로그인을 선택해주세요.
+              </p>
+            )}
+          </>
+        )}
+
         {step === 'summary' && (
           <>
             <h1 className="mt-8 text-[28px] leading-[1.3] font-extrabold text-gray-900">
@@ -467,6 +606,16 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                   locationEnabled ? '위치 안내 켬' : '위치 안내 끔'
                 }`}
               />
+              <SummaryRow
+                label="계정"
+                value={
+                  socialProvider === 'kakao'
+                    ? '카카오 연동'
+                    : socialProvider === 'google'
+                    ? 'Google 연동'
+                    : trimmedEmail || '미설정'
+                }
+              />
             </div>
           </>
         )}
@@ -477,7 +626,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
           type="button"
           onClick={step === 'summary' ? () => finish(true) : goNext}
           disabled={!canGoNext}
-          className="mt-2 w-full rounded-2xl py-4 text-base font-extrabold text-white bg-[#4A7CA8] shadow-md active:scale-[0.99] transition-transform disabled:bg-gray-300 disabled:shadow-none disabled:active:scale-100"
+          className="mt-2 w-full rounded-2xl py-4 text-base font-extrabold text-white bg-[#007956] shadow-md active:scale-[0.99] transition-transform disabled:bg-gray-300 disabled:shadow-none disabled:active:scale-100"
         >
           {step === 'summary' ? '시작하기' : '다음'}
         </button>
@@ -508,7 +657,7 @@ function ToggleRow({ Icon, title, description, checked, onChange }: ToggleRowPro
       onClick={() => onChange(!checked)}
       className="flex w-full items-center gap-4 rounded-2xl border border-gray-200 bg-white px-5 py-4 text-left"
     >
-      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#EAF1F6] text-[#4A7CA8]">
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#EAF4F0] text-[#007956]">
         <Icon sx={{ fontSize: 24 }} />
       </div>
       <div className="min-w-0 flex-1">
@@ -517,7 +666,7 @@ function ToggleRow({ Icon, title, description, checked, onChange }: ToggleRowPro
       </div>
       <span
         className={`relative h-7 w-12 shrink-0 rounded-full transition-colors ${
-          checked ? 'bg-[#4A7CA8]' : 'bg-gray-300'
+          checked ? 'bg-[#007956]' : 'bg-gray-300'
         }`}
       >
         <span
@@ -639,7 +788,7 @@ function AddressField({ Icon, label, placeholder, selected, onSelect }: AddressF
   return (
     <div className="rounded-2xl bg-white border border-gray-200 overflow-hidden">
       <div className="flex items-center gap-4 px-5 py-4">
-        <Icon className="text-[#4A7CA8] shrink-0" sx={{ fontSize: 26 }} />
+        <Icon className="text-[#007956] shrink-0" sx={{ fontSize: 26 }} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs text-gray-500">{label}</p>
@@ -690,7 +839,7 @@ function AddressField({ Icon, label, placeholder, selected, onSelect }: AddressF
               onClick={() => choose(candidate)}
               className="w-full flex items-start gap-3 px-5 py-3 text-left active:bg-gray-50"
             >
-              <LocationOn className="mt-0.5 text-[#4A7CA8] shrink-0" sx={{ fontSize: 20 }} />
+              <LocationOn className="mt-0.5 text-[#007956] shrink-0" sx={{ fontSize: 20 }} />
               <span className="min-w-0">
                 <span className="block text-sm leading-snug text-gray-700 line-clamp-2">
                   {candidate.address}

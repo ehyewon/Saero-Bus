@@ -5,7 +5,7 @@ const goHub = () =>
 
 export function MapPage() {
   return (
-    <div className="size-full bg-[#FAFAFA] overflow-auto">
+    <div className="size-full bg-[#EAF4F0] overflow-auto">
       <div className="max-w-md mx-auto min-h-full pb-6 relative">
         {/* Header */}
         <div className="px-4 pt-2 pb-3 flex items-center gap-3">

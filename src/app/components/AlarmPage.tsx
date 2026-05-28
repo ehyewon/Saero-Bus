@@ -146,7 +146,7 @@ export function AlarmPage() {
   }
 
   return (
-    <div className="size-full overflow-auto relative bg-[#FAFAFA]">
+    <div className="size-full overflow-auto relative bg-[#EAF4F0]">
       <div className="max-w-md mx-auto min-h-full pb-24">
         {/* Header */}
         <div className="px-4 pt-2 pb-2 flex items-center gap-3">
@@ -315,7 +315,7 @@ export function AlarmPage() {
       <button
         onClick={() => setView('create')}
         className="fixed bottom-24 right-4 w-14 h-14 rounded-full text-white shadow-lg flex items-center justify-center"
-        style={{ background: '#047857' }}
+        style={{ background: '#00A878' }}
         aria-label="새 알람 만들기"
       >
         <Add sx={{ fontSize: 28 }} />
@@ -373,7 +373,7 @@ function CreateAlarmView({ onBack, onCreate }: CreateAlarmViewProps) {
   };
 
   return (
-    <div className="size-full overflow-auto bg-[#FAFAFA]">
+    <div className="size-full overflow-auto bg-[#EAF4F0]">
       <div className="max-w-md mx-auto min-h-full pb-24">
         {/* Header */}
         <div className="px-4 pt-4 pb-2 flex items-center justify-between">
@@ -500,7 +500,7 @@ function CreateAlarmView({ onBack, onCreate }: CreateAlarmViewProps) {
           <button
             onClick={handleCreate}
             className="w-full text-white rounded-2xl py-4 flex items-center justify-center gap-2 font-semibold shadow-lg"
-            style={{ background: '#047857' }}
+            style={{ background: '#00A878' }}
           >
             <span>알람 자동 생성하기</span>
             <AutoAwesome sx={{ fontSize: 18 }} />
