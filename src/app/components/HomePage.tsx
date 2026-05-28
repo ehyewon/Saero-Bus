@@ -6,11 +6,13 @@ import {
   Search,
   History,
   Star,
+  Close,
 } from '@mui/icons-material';
 import { WheelTimePicker } from './WheelTimePicker';
 import {
   loadRecentPlaces,
   pushRecentPlace,
+  removeRecentPlace,
   type RecentPlace,
 } from './RecentPlacesSection';
 import { DepartureResult } from './DepartureResult';
@@ -51,6 +53,19 @@ function loadPinnedFavorite(): RecentPlace | null {
   return null;
 }
 
+function removePinnedFavorite() {
+  try {
+    const raw = localStorage.getItem('favoritePlaces');
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      localStorage.setItem('favoritePlaces', JSON.stringify(parsed.slice(1)));
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 export function HomePage({ onBack }: HomePageProps = {}) {
   const [origin, setOrigin] = useState('');
   const [destination, setDestination] = useState('');
@@ -86,6 +101,16 @@ export function HomePage({ onBack }: HomePageProps = {}) {
 
   const pickRecent = (place: RecentPlace) => {
     setDestination(place.name || place.address);
+  };
+
+  const deleteRecent = (address: string) => {
+    if (pinned?.address === address) {
+      removePinnedFavorite();
+      setPinned(loadPinnedFavorite());
+    } else {
+      removeRecentPlace(address);
+      setRecents(loadRecentPlaces());
+    }
   };
 
   const pickPlace = (place: PlaceSearchResult) => {
@@ -260,24 +285,36 @@ export function HomePage({ onBack }: HomePageProps = {}) {
           ) : (
             <div className="card-grad rounded-2xl shadow-md divide-y divide-gray-100 overflow-y-auto" style={{ maxHeight: 5 * 64 }}>
               {list.map((item, i) => (
-                <button
+                <div
                   key={`${item.kind}-${item.address}-${i}`}
-                  type="button"
-                  onClick={() => pickRecent(item)}
                   className="w-full flex items-center gap-3 px-4 py-3 text-left"
                 >
-                  <div className="w-10 h-10 rounded-full bg-emerald-50 flex items-center justify-center shrink-0">
-                    {item.kind === 'fav' ? (
-                      <Star className="text-emerald-700" />
-                    ) : (
-                      <History className="text-gray-500" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-bold text-gray-900 truncate">{item.name || item.address}</p>
-                    <p className="text-xs text-gray-500 truncate">{item.address}</p>
-                  </div>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => pickRecent(item)}
+                    className="flex flex-1 items-center gap-3 text-left min-w-0"
+                  >
+                    <div className="w-10 h-10 rounded-full bg-emerald-50 flex items-center justify-center shrink-0">
+                      {item.kind === 'fav' ? (
+                        <Star className="text-emerald-700" />
+                      ) : (
+                        <History className="text-gray-500" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-gray-900 truncate">{item.name || item.address}</p>
+                      <p className="text-xs text-gray-500 truncate">{item.address}</p>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteRecent(item.address)}
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-gray-400 hover:text-gray-700 hover:bg-gray-100 shrink-0"
+                    aria-label={`${item.name || item.address} 삭제`}
+                  >
+                    <Close sx={{ fontSize: 18 }} />
+                  </button>
+                </div>
               ))}
             </div>
           )}

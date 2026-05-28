@@ -30,6 +30,11 @@ export function pushRecentPlace(place: RecentPlace) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(list.slice(0, 8)));
 }
 
+export function removeRecentPlace(address: string) {
+  const list = loadRecentPlaces().filter((p) => p.address !== address);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(list.slice(0, 8)));
+}
+
 export function RecentPlacesSection({ onSelectPlace, refreshKey }: RecentPlacesSectionProps) {
   const [places, setPlaces] = useState<RecentPlace[]>([]);
 
