@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { motion } from 'motion/react';
 import {
   Notifications,
   Menu as MenuIcon,
@@ -10,6 +11,8 @@ import {
   WbSunny,
   LightMode,
   Bedtime,
+  DarkMode,
+  PriorityHigh,
 } from '@mui/icons-material';
 import { HomePage } from './HomePage';
 import { ActiveTripCard } from './ActiveTripCard';
@@ -27,13 +30,14 @@ interface Tile {
   tabIndex?: number;
 }
 
-type Daypart = 'morning' | 'afternoon' | 'evening';
+type Daypart = 'morning' | 'afternoon' | 'evening' | 'night';
 
 function getDaypart(date = new Date()): Daypart {
   const h = date.getHours();
   if (h >= 5 && h < 11) return 'morning';
   if (h >= 11 && h < 17) return 'afternoon';
-  return 'evening';
+  if (h >= 17 && h < 22) return 'evening';
+  return 'night';
 }
 
 const GREETINGS: Record<Daypart, string[]> = {
@@ -73,13 +77,39 @@ const GREETINGS: Record<Daypart, string[]> = {
     '오늘도 잘 이겨내셨어요',
     '푹 쉬셔도 괜찮아요',
   ],
+  night: [
+    '별이 빛나는 시간이에요',
+    '오늘도 정말 수고하셨어요',
+    '내일 더 좋은 하루 보내요',
+    '달빛이 참 따뜻하네요',
+    '조용한 밤 즐기세요',
+    '꿈자리 편안하시길요',
+    '푹 쉬고 일어나요',
+    '밤바람이 시원해요',
+    '오늘 하루 마무리 잘 했어요',
+    '잘 자요',
+  ],
 };
 
-const DAYPART_META: Record<Daypart, { label: string; Icon: typeof WbSunny }> = {
-  morning: { label: '오늘 아침', Icon: WbSunny },
-  afternoon: { label: '오늘 낮', Icon: LightMode },
-  evening: { label: '오늘 저녁', Icon: Bedtime },
+const DAYPART_META: Record<Daypart, { label: string; Icon: typeof WbSunny; duck: string }> = {
+  morning: { label: '오늘 아침', Icon: WbSunny, duck: '/ducks/heart.png' },
+  afternoon: { label: '오늘 낮', Icon: LightMode, duck: '/ducks/star.png' },
+  evening: { label: '오늘 저녁', Icon: Bedtime, duck: '/ducks/happy.png' },
+  night: { label: '오늘 밤', Icon: DarkMode, duck: '/ducks/sleep.png' },
 };
+
+const URGENT_DUCK = '/ducks/alert.png';
+const URGENT_WINDOW_MIN = 30;
+
+function minutesUntilArrival(arrivalTime: string | undefined, now = new Date()): number | null {
+  if (!arrivalTime) return null;
+  const m = arrivalTime.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const target = new Date(now);
+  target.setHours(Number(m[1]), Number(m[2]), 0, 0);
+  // If target is already past, assume the trip is happening *now* (not next day).
+  return Math.round((target.getTime() - now.getTime()) / 60_000);
+}
 
 function loadNickname(): string {
   try {
@@ -110,6 +140,11 @@ export function RouteHub() {
     return { daypart, line: list[Math.floor(Math.random() * list.length)] };
   });
   const DaypartIcon = DAYPART_META[greeting.daypart].Icon;
+  const urgent = useMemo(() => {
+    if (!upcoming) return false;
+    const remaining = minutesUntilArrival(upcoming.arrivalTime);
+    return remaining !== null && remaining >= 0 && remaining < URGENT_WINDOW_MIN;
+  }, [upcoming]);
 
   // Re-check upcoming trip on mount, on focus, and once a minute
   useEffect(() => {
@@ -171,16 +206,49 @@ export function RouteHub() {
         </div>
 
         {/* Greeting card — time-of-day message keyed to the user's nickname */}
-        <div className="mt-5 rounded-3xl bg-gradient-to-br from-[#007956] to-[#005C42] px-6 py-7 shadow-md text-white">
-          <div className="flex items-center gap-2 text-[12px] font-semibold opacity-85">
-            <DaypartIcon sx={{ fontSize: 16 }} />
-            <span>{DAYPART_META[greeting.daypart].label}</span>
+        <div className="mt-5 rounded-3xl bg-gradient-to-br from-[#0E6E8B] to-[#14322E] px-6 py-7 shadow-md text-white relative overflow-hidden">
+          <div className="flex items-start gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 text-[12px] font-semibold opacity-85">
+                {urgent ? (
+                  <>
+                    <PriorityHigh sx={{ fontSize: 16 }} />
+                    <span>지금 출발</span>
+                  </>
+                ) : (
+                  <>
+                    <DaypartIcon sx={{ fontSize: 16 }} />
+                    <span>{DAYPART_META[greeting.daypart].label}</span>
+                  </>
+                )}
+              </div>
+              <p className="mt-2 text-[26px] leading-[1.25] font-extrabold">
+                {nickname ? `${nickname}님!` : '안녕하세요!'}
+                <br />
+                {urgent ? '지금 나가야 해요' : greeting.line}
+              </p>
+            </div>
+            <motion.img
+              src={urgent ? URGENT_DUCK : DAYPART_META[greeting.daypart].duck}
+              alt=""
+              draggable={false}
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.visibility = 'hidden';
+              }}
+              className="w-20 h-20 shrink-0 object-contain select-none"
+              animate={
+                urgent
+                  ? { x: [0, -4, 4, -4, 4, 0], rotate: [0, -3, 3, -3, 3, 0] }
+                  : { y: [0, -6, 0] }
+              }
+              transition={{
+                duration: urgent ? 0.6 : 2.4,
+                repeat: Infinity,
+                repeatDelay: urgent ? 1.2 : 0,
+                ease: 'easeInOut',
+              }}
+            />
           </div>
-          <p className="mt-2 text-[26px] leading-[1.25] font-extrabold">
-            {nickname ? `${nickname}님!` : '안녕하세요!'}
-            <br />
-            {greeting.line}
-          </p>
         </div>
 
         {/* Active / upcoming trip — above the tile grid */}
