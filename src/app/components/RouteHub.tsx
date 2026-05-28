@@ -7,6 +7,9 @@ import {
   Map as MapIcon,
   Alarm as AlarmIcon,
   Close,
+  WbSunny,
+  LightMode,
+  Bedtime,
 } from '@mui/icons-material';
 import { HomePage } from './HomePage';
 import { ActiveTripCard } from './ActiveTripCard';
@@ -24,6 +27,71 @@ interface Tile {
   tabIndex?: number;
 }
 
+type Daypart = 'morning' | 'afternoon' | 'evening';
+
+function getDaypart(date = new Date()): Daypart {
+  const h = date.getHours();
+  if (h >= 5 && h < 11) return 'morning';
+  if (h >= 11 && h < 17) return 'afternoon';
+  return 'evening';
+}
+
+const GREETINGS: Record<Daypart, string[]> = {
+  morning: [
+    '오늘 하루도 화이팅이에요',
+    '좋은 아침이에요',
+    '오늘도 잘 다녀오세요',
+    '상쾌한 하루 시작해볼까요?',
+    '오늘 햇살이 참 좋네요',
+    '아침은 챙겨드셨어요?',
+    '출발 준비는 되셨나요?',
+    '오늘은 어떤 하루가 기다릴까요?',
+    '새로운 하루 응원할게요',
+    '늦지 않게 도와드릴게요',
+  ],
+  afternoon: [
+    '점심은 드셨어요?',
+    '잠깐 쉬어가도 좋아요',
+    '오후도 힘내세요',
+    '햇살 좋은 오후네요',
+    '다음 일정 챙겨드릴게요',
+    '졸음이 올 시간이에요',
+    '산책하기 좋은 날이에요',
+    '오후 일정 가볍게 가봐요',
+    '잠깐 숨 돌리는 거 잊지 마세요',
+    '오늘 절반 잘 달려왔어요',
+  ],
+  evening: [
+    '오늘도 수고하셨어요',
+    '저녁 달이 참 예쁘네요',
+    '집까지 편히 모실게요',
+    '오늘 하루 어떠셨어요?',
+    '조심해서 들어가세요',
+    '야경이 멋진 시간이에요',
+    '따뜻한 저녁 보내세요',
+    '마지막 한 걸음만 더 힘내요',
+    '오늘도 잘 이겨내셨어요',
+    '푹 쉬셔도 괜찮아요',
+  ],
+};
+
+const DAYPART_META: Record<Daypart, { label: string; Icon: typeof WbSunny }> = {
+  morning: { label: '오늘 아침', Icon: WbSunny },
+  afternoon: { label: '오늘 낮', Icon: LightMode },
+  evening: { label: '오늘 저녁', Icon: Bedtime },
+};
+
+function loadNickname(): string {
+  try {
+    const raw = localStorage.getItem('saerobus.profile.v1');
+    if (!raw) return '';
+    const parsed = JSON.parse(raw);
+    return typeof parsed?.nickname === 'string' ? parsed.nickname : '';
+  } catch {
+    return '';
+  }
+}
+
 const TILES: Tile[] = [
   { id: 'route', label: '경로', sub: '도착 시각으로 출발 시간 추천', Icon: RouteIcon, primary: true },
   { id: 'bus',   label: '버스', sub: '노선·정류장 검색',           Icon: DirectionsBus, tabIndex: 1 },
@@ -34,6 +102,14 @@ const TILES: Tile[] = [
 export function RouteHub() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [upcoming, setUpcoming] = useState<UpcomingTrip | null>(null);
+  const [nickname, setNickname] = useState('');
+  // Pick a daypart + greeting once per mount so the message stays stable while the user is here.
+  const [greeting] = useState(() => {
+    const daypart = getDaypart();
+    const list = GREETINGS[daypart];
+    return { daypart, line: list[Math.floor(Math.random() * list.length)] };
+  });
+  const DaypartIcon = DAYPART_META[greeting.daypart].Icon;
 
   // Re-check upcoming trip on mount, on focus, and once a minute
   useEffect(() => {
@@ -46,6 +122,13 @@ export function RouteHub() {
       window.removeEventListener('focus', refresh);
     };
   }, [searchOpen]);
+
+  useEffect(() => {
+    setNickname(loadNickname());
+    const refresh = () => setNickname(loadNickname());
+    window.addEventListener('focus', refresh);
+    return () => window.removeEventListener('focus', refresh);
+  }, []);
 
   const handleTileClick = (tile: Tile) => {
     if (tile.id === 'route') {
@@ -87,22 +170,16 @@ export function RouteHub() {
           </div>
         </div>
 
-        {/* User card */}
-        <div className="mt-4 card-grad rounded-2xl p-4 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-full bg-emerald-100 flex items-center justify-center text-emerald-700 font-bold">
-              혜
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-bold text-gray-900 truncate">혜원 님</p>
-              <p className="text-xs text-gray-500">도착 기반 에이전트 · GREEN 등급</p>
-            </div>
+        {/* Greeting card — time-of-day message keyed to the user's nickname */}
+        <div className="mt-5 rounded-3xl bg-gradient-to-br from-[#007956] to-[#005C42] px-6 py-7 shadow-md text-white">
+          <div className="flex items-center gap-2 text-[12px] font-semibold opacity-85">
+            <DaypartIcon sx={{ fontSize: 16 }} />
+            <span>{DAYPART_META[greeting.daypart].label}</span>
           </div>
-          <div className="mt-3 h-2 bg-gray-100 rounded-full overflow-hidden">
-            <div className="h-full bg-emerald-500 rounded-full" style={{ width: '60%' }} />
-          </div>
-          <p className="text-right text-xs text-gray-500 mt-1 tabular-nums">
-            <span className="text-emerald-700 font-bold">18</span> / 30p
+          <p className="mt-2 text-[26px] leading-[1.25] font-extrabold">
+            {nickname ? `${nickname}님!` : '안녕하세요!'}
+            <br />
+            {greeting.line}
           </p>
         </div>
 
