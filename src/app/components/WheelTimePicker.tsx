@@ -4,6 +4,10 @@ interface WheelTimePickerProps {
   /** "HH:mm" 24h */
   value: string;
   onChange: (value: string) => void;
+  /** Override minute choices (default: 0..59). Use e.g. [0, 30] for 30-minute step. */
+  minuteOptions?: readonly number[];
+  /** Override AM/PM labels (default: 'AM' / 'PM'). */
+  ampmLabels?: { am: string; pm: string };
 }
 
 const ITEM_H = 40;     // px per row
@@ -13,8 +17,9 @@ const PAD = Math.floor(VISIBLE / 2);
 const pad = (n: number) => String(n).padStart(2, '0');
 
 const hours12 = Array.from({ length: 12 }, (_, i) => i + 1); // 1..12
-const minutes = Array.from({ length: 60 }, (_, i) => i);     // 0..59
+const defaultMinutes = Array.from({ length: 60 }, (_, i) => i); // 0..59
 const ampms = ['AM', 'PM'] as const;
+type AmPm = (typeof ampms)[number];
 
 interface WheelColumnProps<T> {
   items: readonly T[];
@@ -86,24 +91,37 @@ function WheelColumn<T>({ items, value, onChange, format }: WheelColumnProps<T>)
   );
 }
 
-export function WheelTimePicker({ value, onChange }: WheelTimePickerProps) {
+export function WheelTimePicker({
+  value,
+  onChange,
+  minuteOptions,
+  ampmLabels,
+}: WheelTimePickerProps) {
+  const minutes = minuteOptions ?? defaultMinutes;
   const [h24Str, mStr] = value.split(':');
   const h24 = Number(h24Str);
-  const m = Number(mStr);
-  const ampm: 'AM' | 'PM' = h24 >= 12 ? 'PM' : 'AM';
+  const rawM = Number(mStr);
+  // Snap incoming minute to the nearest allowed option so the column always has a match.
+  const m = minutes.reduce(
+    (best, cur) => (Math.abs(cur - rawM) < Math.abs(best - rawM) ? cur : best),
+    minutes[0],
+  );
+  const ampm: AmPm = h24 >= 12 ? 'PM' : 'AM';
   const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
 
-  const emit = (nextH12: number, nextM: number, nextAmpm: 'AM' | 'PM') => {
+  const emit = (nextH12: number, nextM: number, nextAmpm: AmPm) => {
     let next24 = nextH12 % 12;
     if (nextAmpm === 'PM') next24 += 12;
     onChange(`${pad(next24)}:${pad(nextM)}`);
   };
 
+  const labelFor = (v: AmPm) => (ampmLabels ? (v === 'AM' ? ampmLabels.am : ampmLabels.pm) : v);
+
   return (
     <div className="relative bg-white rounded-2xl border border-gray-200 overflow-hidden">
       {/* Center highlight band */}
       <div
-        className="pointer-events-none absolute inset-x-0 z-10 border-y border-emerald-200 bg-emerald-50/40"
+        className="pointer-events-none absolute inset-x-0 z-10 border-y border-[#B8E0D2] bg-[#EAF4F0]/60"
         style={{ top: ITEM_H * PAD, height: ITEM_H }}
       />
       <div className="flex">
@@ -126,7 +144,7 @@ export function WheelTimePicker({ value, onChange }: WheelTimePickerProps) {
           items={ampms}
           value={ampm}
           onChange={(v) => emit(h12, m, v)}
-          format={(v) => v}
+          format={labelFor}
         />
       </div>
     </div>

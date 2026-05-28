@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import {
   Home,
   School,
-  KeyboardArrowDown,
   LocationOn,
   Search,
   CheckCircle,
@@ -16,6 +15,7 @@ import {
   Visibility,
   VisibilityOff,
 } from '@mui/icons-material';
+import { WheelTimePicker } from './WheelTimePicker';
 
 /** localStorage keys — bump the suffix if the onboarding flow changes materially. */
 export const ONBOARDING_KEY = 'saerobus.onboarded.v2';
@@ -206,21 +206,6 @@ const BUS_FIRST_MINUTE = 30;
 const BUS_LAST_HOUR = 23;
 const BUS_LAST_MINUTE = 0;
 
-/** 30-minute time options inside operating window, labelled in Korean (오전/오후). */
-const TIME_OPTIONS: string[] = (() => {
-  const out: string[] = [];
-  for (let h = BUS_FIRST_HOUR; h <= BUS_LAST_HOUR; h++) {
-    for (const m of [0, 30]) {
-      if (h === BUS_FIRST_HOUR && m < BUS_FIRST_MINUTE) continue;
-      if (h === BUS_LAST_HOUR && m > BUS_LAST_MINUTE) continue;
-      const period = h < 12 ? '오전' : '오후';
-      const h12 = h % 12 === 0 ? 12 : h % 12;
-      out.push(`${period} ${h12}:${String(m).padStart(2, '0')}`);
-    }
-  }
-  return out;
-})();
-
 type DayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
 const DAYS: DayKey[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const DAY_LABELS: Record<DayKey, string> = {
@@ -231,6 +216,47 @@ const WEEKEND: DayKey[] = ['sat', 'sun'];
 
 function sameDaySet(a: DayKey[], preset: DayKey[]) {
   return a.length === preset.length && preset.every((d) => a.includes(d));
+}
+
+function koreanToHHmm(value: string): string {
+  const match = value.match(/^(오전|오후)\s+(\d{1,2}):(\d{2})$/);
+  if (!match) return '09:00';
+  const [, period, hStr, mStr] = match;
+  let h = Number(hStr);
+  if (period === '오전' && h === 12) h = 0;
+  if (period === '오후' && h !== 12) h += 12;
+  return `${String(h).padStart(2, '0')}:${mStr}`;
+}
+
+function hhmmToKorean(value: string): string {
+  const [hStr, mStr] = value.split(':');
+  const h24 = Number(hStr);
+  const period = h24 < 12 ? '오전' : '오후';
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${period} ${h12}:${mStr}`;
+}
+
+/** Clamp a HH:mm value to the bus operating window (assumes 30-minute steps coming in). */
+function snapToOperating(hhmm: string): string {
+  const [hStr, mStr] = hhmm.split(':');
+  const total = Number(hStr) * 60 + Number(mStr);
+  const minT = BUS_FIRST_HOUR * 60 + BUS_FIRST_MINUTE;
+  const maxT = BUS_LAST_HOUR * 60 + BUS_LAST_MINUTE;
+  const clamped = Math.max(minT, Math.min(maxT, total));
+  const h = Math.floor(clamped / 60);
+  const m = clamped % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+function shiftArrivalTime(value: string, deltaMinutes: number): string {
+  const hhmm = koreanToHHmm(value);
+  const [hStr, mStr] = hhmm.split(':');
+  const total = Number(hStr) * 60 + Number(mStr) + deltaMinutes;
+  const wrapped = ((total % (24 * 60)) + 24 * 60) % (24 * 60);
+  const h = Math.floor(wrapped / 60);
+  const m = wrapped % 60;
+  const next = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  return hhmmToKorean(snapToOperating(next));
 }
 
 const ONBOARDING_STEPS = ['nickname', 'purpose', 'places', 'arrivalTime', 'permissions', 'account', 'summary'] as const;
@@ -523,28 +549,43 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               )}
             </div>
 
-            <div className="mt-5 rounded-2xl border border-gray-200 bg-white px-5 py-5">
+            <div className="mt-5 rounded-2xl border-2 border-[#007956] bg-white px-4 py-4">
               <div className="flex items-center justify-between">
-                <p className="text-xs font-semibold text-[#5A6B66]">보통 도착 시각</p>
+                <p className="text-xs font-semibold text-[#5A6B66]">언제까지 도착하면 되나요?</p>
                 <p className="text-[10px] text-[#5A6B66]">
                   운행 05:30 ~ 23:00
                 </p>
               </div>
-              <div className="relative mt-3">
-                <select
-                  value={arrivalTime}
-                  onChange={(e) => setArrivalTime(e.target.value)}
-                  className="w-full appearance-none bg-transparent pr-8 text-[28px] font-extrabold text-[#14322E] focus:outline-none cursor-pointer"
-                  aria-label="보통 도착 시각"
+              <p className="mt-3 text-center text-sm font-bold text-[#14322E]">
+                {arrivalTime}
+              </p>
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setArrivalTime((t) => shiftArrivalTime(t, -30))}
+                  className="h-10 px-3 rounded-xl bg-[#EAF4F0] text-[#005C42] text-sm font-extrabold active:scale-[0.97] transition-transform"
+                  aria-label="30분 빠르게"
                 >
-                  {TIME_OPTIONS.map((t) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-                <KeyboardArrowDown
-                  className="absolute right-0 top-1/2 -translate-y-1/2 text-[#5A6B66] pointer-events-none"
-                  sx={{ fontSize: 22 }}
-                />
+                  −30분
+                </button>
+                <div className="flex-1">
+                  <WheelTimePicker
+                    value={koreanToHHmm(arrivalTime)}
+                    onChange={(v) =>
+                      setArrivalTime(hhmmToKorean(snapToOperating(v)))
+                    }
+                    minuteOptions={[0, 30]}
+                    ampmLabels={{ am: '오전', pm: '오후' }}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setArrivalTime((t) => shiftArrivalTime(t, 30))}
+                  className="h-10 px-3 rounded-xl bg-[#EAF4F0] text-[#005C42] text-sm font-extrabold active:scale-[0.97] transition-transform"
+                  aria-label="30분 늦게"
+                >
+                  +30분
+                </button>
               </div>
             </div>
           </>
