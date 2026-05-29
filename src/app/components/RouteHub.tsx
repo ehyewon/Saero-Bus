@@ -413,6 +413,11 @@ export function RouteHub() {
             새로버스
           </span>
           <div className="flex items-center gap-1">
+            {nickname && (
+              <span className="text-sm font-bold text-gray-800 mr-1">
+                {nickname}님
+              </span>
+            )}
             <button
               type="button"
               onClick={() => window.dispatchEvent(new CustomEvent('switchTab', { detail: 3 }))}

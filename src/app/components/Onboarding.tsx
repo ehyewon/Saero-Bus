@@ -304,6 +304,7 @@ interface OnboardingProps {
 export function Onboarding({ onComplete }: OnboardingProps) {
   const [step, setStep] = useState<OnboardingStep>('nickname');
   const [nickname, setNickname] = useState('');
+  const [rawNickname, setRawNickname] = useState('');
   const [isComposingNickname, setIsComposingNickname] = useState(false);
   const [purpose, setPurpose] = useState<TravelPurpose | null>(null);
   const [home, setHome] = useState<RegisteredPlace | null>(null);
@@ -488,12 +489,15 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                 value={nickname}
                 onChange={(event) => {
                   const value = event.target.value;
+                  setRawNickname(value);
                   setNickname(isComposingNickname ? value : sanitizeNickname(value));
                 }}
                 onCompositionStart={() => setIsComposingNickname(true)}
                 onCompositionEnd={(event) => {
                   setIsComposingNickname(false);
-                  setNickname(sanitizeNickname(event.currentTarget.value));
+                  const value = event.currentTarget.value;
+                  setRawNickname(value);
+                  setNickname(sanitizeNickname(value));
                 }}
                 placeholder="예: 민지, Alex"
                 autoComplete="nickname"
@@ -506,6 +510,13 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                 </span>
               </div>
             </div>
+            {!isComposingNickname &&
+              rawNickname.trim().length > 0 &&
+              trimmedNickname.length === 0 && (
+                <p className="mt-3 text-xs font-semibold text-rose-600">
+                  자음·모음만으로는 안 돼요. 한 글자 이상으로 다시 입력해 주세요.
+                </p>
+              )}
           </>
         )}
 
