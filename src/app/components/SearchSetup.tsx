@@ -97,7 +97,7 @@ export function SearchSetup({
     >
       <div className="max-w-md mx-auto min-h-full pb-28">
         {/* Header */}
-        <div className="px-4 pt-4 pb-2 flex items-center justify-between">
+        <div className="px-4 pt-4 pb-2 flex items-center gap-3">
           <button
             onClick={onCancel}
             className="w-10 h-10 rounded-full bg-white/70 backdrop-blur-sm flex items-center justify-center text-gray-700 shadow-sm"
@@ -105,10 +105,7 @@ export function SearchSetup({
           >
             <Close />
           </button>
-          <span className="text-lg font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-            Saerobus
-          </span>
-          <div className="w-10 h-10" />
+          <h1 className="text-xl font-extrabold text-gray-900">경로 검색</h1>
         </div>
 
         {/* Title chip */}
