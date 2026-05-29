@@ -20,6 +20,7 @@ import {
 import { HomePage } from './HomePage';
 import { ActiveTripCard } from './ActiveTripCard';
 import { SideMenu, type SideMenuKey } from './SideMenu';
+import { ProfilePage } from './ProfilePage';
 import { loadUpcomingTrip, type UpcomingTrip } from '../lib/upcoming';
 import { clearActiveTrip } from '../lib/activeTrip';
 import {
@@ -139,6 +140,7 @@ const MENU_LABELS: Record<SideMenuKey, string> = {
 export function RouteHub() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [upcoming, setUpcoming] = useState<UpcomingTrip | null>(null);
   const [nickname, setNickname] = useState('');
   const [daypart] = useState(() => getDaypart());
@@ -207,6 +209,10 @@ export function RouteHub() {
       window.dispatchEvent(new CustomEvent('switchTab', { detail: tile.tabIndex }));
     }
   };
+
+  if (profileOpen) {
+    return <ProfilePage onBack={() => setProfileOpen(false)} />;
+  }
 
   if (searchOpen) {
     return <HomePage onBack={() => setSearchOpen(false)} />;
@@ -386,6 +392,10 @@ export function RouteHub() {
         onClose={() => setMenuOpen(false)}
         onSelect={(key) => {
           setMenuOpen(false);
+          if (key === 'profile') {
+            setProfileOpen(true);
+            return;
+          }
           window.dispatchEvent(
             new CustomEvent('showToast', { detail: `${MENU_LABELS[key]} (준비 중)` })
           );
