@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   SmartToy,
-  AccountCircle,
   ChevronLeft,
   ChevronRight,
   Add,
@@ -15,6 +14,7 @@ import {
   Psychology,
   CheckCircle,
   AutoAwesome,
+  DeleteOutline,
   Map as MapIcon,
 } from '@mui/icons-material';
 
@@ -96,8 +96,13 @@ function loadStoredAlarms(): Alarm[] | null {
   return null;
 }
 
+type AlarmView =
+  | { kind: 'list' }
+  | { kind: 'create' }
+  | { kind: 'edit'; alarm: Alarm };
+
 export function AlarmPage() {
-  const [view, setView] = useState<'list' | 'create'>('list');
+  const [view, setView] = useState<AlarmView>({ kind: 'list' });
   const [alarms, setAlarms] = useState<Alarm[]>(() => loadStoredAlarms() ?? initialAlarms);
   const [selectedDate, setSelectedDate] = useState<string>(todayKey);
   const [weekAnchor, setWeekAnchor] = useState<Date>(today);
@@ -156,13 +161,30 @@ export function AlarmPage() {
     return `${m}월 ${d}일`;
   })();
 
-  if (view === 'create') {
+  if (view.kind === 'create') {
     return (
-      <CreateAlarmView
-        onBack={() => setView('list')}
-        onCreate={(alarm) => {
+      <AlarmEditorView
+        onBack={() => setView({ kind: 'list' })}
+        onSave={(alarm) => {
           setAlarms((prev) => [...prev, alarm]);
-          setView('list');
+          setView({ kind: 'list' });
+        }}
+      />
+    );
+  }
+
+  if (view.kind === 'edit') {
+    return (
+      <AlarmEditorView
+        initialAlarm={view.alarm}
+        onBack={() => setView({ kind: 'list' })}
+        onSave={(updated) => {
+          setAlarms((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+          setView({ kind: 'list' });
+        }}
+        onDelete={(id) => {
+          setAlarms((prev) => prev.filter((a) => a.id !== id));
+          setView({ kind: 'list' });
         }}
       />
     );
@@ -172,7 +194,7 @@ export function AlarmPage() {
     <div className="size-full overflow-auto relative bg-[#EAF4F0]">
       <div className="max-w-md mx-auto min-h-full pb-24">
         {/* Header */}
-        <div className="px-4 pt-2 pb-2 flex items-center gap-3">
+        <div className="px-4 pt-2 pb-3 flex items-center gap-3">
           <button
             type="button"
             onClick={() => window.dispatchEvent(new CustomEvent('switchTab', { detail: 0 }))}
@@ -181,19 +203,12 @@ export function AlarmPage() {
           >
             <ArrowBack />
           </button>
-          <div className="flex items-center gap-2">
-            <SmartToy className="text-emerald-700" sx={{ fontSize: 24 }} />
-            <span className="text-lg font-extrabold text-emerald-700">Saerobus</span>
-          </div>
-          <button className="ml-auto w-9 h-9 rounded-full flex items-center justify-center text-gray-700">
-            <AccountCircle sx={{ fontSize: 28 }} />
-          </button>
+          <h1 className="text-xl font-extrabold text-gray-900">알람 리스트</h1>
         </div>
 
-        {/* Title */}
-        <div className="px-4 mt-2">
-          <h1 className="text-2xl font-bold text-gray-900">알람 리스트</h1>
-          <p className="text-sm text-gray-600 mt-1">
+        {/* Subtitle */}
+        <div className="px-4">
+          <p className="text-sm text-gray-600">
             스마트 에이전트가 최적의 출발 시간을 안내합니다.
           </p>
         </div>
@@ -354,9 +369,11 @@ export function AlarmPage() {
             visibleAlarms.map((alarm) => {
               const { Icon, bg, color } = iconMap[alarm.icon];
               return (
-                <div
+                <button
                   key={alarm.id}
-                  className="bg-white rounded-2xl p-4 shadow-sm flex items-center gap-4"
+                  type="button"
+                  onClick={() => setView({ kind: 'edit', alarm })}
+                  className="w-full bg-white rounded-2xl p-4 shadow-sm flex items-center gap-4 text-left active:bg-gray-50 transition"
                 >
                   <div className={`w-12 h-12 rounded-full ${bg} flex items-center justify-center shrink-0`}>
                     <Icon className={color} />
@@ -366,20 +383,24 @@ export function AlarmPage() {
                     <p className="text-gray-900 font-medium">{alarm.time}</p>
                     <p className="text-sm text-emerald-700 mt-0.5">{alarm.days}</p>
                   </div>
-                  <button
-                    onClick={() => toggleAlarm(alarm.id)}
-                    className={`relative w-12 h-7 rounded-full transition-colors shrink-0 ${
+                  <span
+                    role="switch"
+                    aria-checked={alarm.enabled}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleAlarm(alarm.id);
+                    }}
+                    className={`relative w-12 h-7 rounded-full transition-colors shrink-0 cursor-pointer ${
                       alarm.enabled ? 'bg-emerald-700' : 'bg-gray-300'
                     }`}
-                    aria-pressed={alarm.enabled}
                   >
                     <span
                       className={`absolute top-0.5 left-0.5 w-6 h-6 bg-white rounded-full shadow transition-transform ${
                         alarm.enabled ? 'translate-x-5' : 'translate-x-0'
                       }`}
                     />
-                  </button>
-                </div>
+                  </span>
+                </button>
               );
             })
           )}
@@ -407,7 +428,7 @@ export function AlarmPage() {
 
       {/* FAB */}
       <button
-        onClick={() => setView('create')}
+        onClick={() => setView({ kind: 'create' })}
         className="fixed bottom-24 right-4 w-14 h-14 rounded-full text-white shadow-lg flex items-center justify-center"
         style={{ background: '#00A878' }}
         aria-label="새 알람 만들기"
@@ -418,23 +439,74 @@ export function AlarmPage() {
   );
 }
 
-interface CreateAlarmViewProps {
+interface AlarmEditorViewProps {
   onBack: () => void;
-  onCreate: (alarm: Alarm) => void;
+  onSave: (alarm: Alarm) => void;
+  initialAlarm?: Alarm;
+  onDelete?: (id: string) => void;
 }
 
-function CreateAlarmView({ onBack, onCreate }: CreateAlarmViewProps) {
-  const [destination] = useState({
-    name: '전북대학교',
-    address: '전주시 덕진구 백제대로 567',
-  });
-  const [hour, setHour] = useState(8);
-  const [minute, setMinute] = useState(45);
-  const [isPm, setIsPm] = useState(false);
-  const [selectedDate, setSelectedDate] = useState<string>(todayKey);
+const ICON_OPTIONS: { key: AlarmIconKey; label: string }[] = [
+  { key: 'work', label: '출근' },
+  { key: 'fitness', label: '운동' },
+  { key: 'meal', label: '약속' },
+];
+
+function parseAlarmTime(time: string): { hour: number; minute: number; isPm: boolean } {
+  const m = time.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+  if (!m) return { hour: 8, minute: 45, isPm: false };
+  return {
+    hour: Number(m[1]),
+    minute: Number(m[2]),
+    isPm: (m[3] ?? '').toUpperCase() === 'PM',
+  };
+}
+
+function daysLabelFromDates(dates: string[]): string {
+  if (dates.length === 0) return '오늘';
+  if (dates.length === 1) {
+    if (dates[0] === todayKey) return '오늘';
+    const [, m, d] = dates[0].split('-').map(Number);
+    return `${m}월 ${d}일`;
+  }
+  const uniqueWeekdays = new Set(
+    dates.map((k) => {
+      const [y, mo, d] = k.split('-').map(Number);
+      return new Date(y, mo - 1, d).getDay();
+    }),
+  );
+  return [0, 1, 2, 3, 4, 5, 6]
+    .filter((i) => uniqueWeekdays.has(i))
+    .map((i) => KOREAN_WEEKDAYS[i])
+    .join(' ');
+}
+
+function AlarmEditorView({ onBack, onSave, initialAlarm, onDelete }: AlarmEditorViewProps) {
+  const isEdit = !!initialAlarm;
+
+  const initialTime = useMemo(
+    () => (initialAlarm ? parseAlarmTime(initialAlarm.time) : { hour: 8, minute: 45, isPm: false }),
+    [initialAlarm],
+  );
+
+  const [title, setTitle] = useState(initialAlarm?.title ?? '');
+  const [destName, setDestName] = useState(
+    initialAlarm ? '' : '전북대학교',
+  );
+  const [destAddress, setDestAddress] = useState(
+    initialAlarm ? '' : '전주시 덕진구 백제대로 567',
+  );
+  const [icon, setIcon] = useState<AlarmIconKey>(initialAlarm?.icon ?? 'work');
+  const [hour, setHour] = useState(initialTime.hour);
+  const [minute, setMinute] = useState(initialTime.minute);
+  const [isPm, setIsPm] = useState(initialTime.isPm);
+  const [selectedDates, setSelectedDates] = useState<Set<string>>(
+    () => new Set(initialAlarm?.dates ?? [todayKey]),
+  );
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const days = useMemo(() => {
-    return Array.from({ length: 5 }, (_, i) => {
+    return Array.from({ length: 7 }, (_, i) => {
       const d = new Date(today);
       d.setDate(today.getDate() + i);
       return d;
@@ -453,17 +525,28 @@ function CreateAlarmView({ onBack, onCreate }: CreateAlarmViewProps) {
 
   const timeLabel = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 
-  const handleCreate = () => {
-    const newAlarm: Alarm = {
-      id: String(Date.now()),
-      title: `${destination.name} 도착`,
+  const toggleDate = (key: string) => {
+    setSelectedDates((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const handleSave = () => {
+    const dates = Array.from(selectedDates);
+    const finalTitle = title.trim() || (destName.trim() ? `${destName.trim()} 도착` : '새 알람');
+    const alarm: Alarm = {
+      id: initialAlarm?.id ?? String(Date.now()),
+      title: finalTitle,
       time: `${timeLabel} ${isPm ? 'PM' : 'AM'}`,
-      days: '오늘',
-      icon: 'work',
-      enabled: true,
-      dates: [selectedDate],
+      days: daysLabelFromDates(dates),
+      icon,
+      enabled: initialAlarm?.enabled ?? true,
+      dates: dates.length > 0 ? dates : [todayKey],
     };
-    onCreate(newAlarm);
+    onSave(alarm);
   };
 
   return (
@@ -474,25 +557,76 @@ function CreateAlarmView({ onBack, onCreate }: CreateAlarmViewProps) {
           <button onClick={onBack} className="w-9 h-9 flex items-center justify-center text-gray-800">
             <ArrowBack />
           </button>
-          <h1 className="text-lg font-bold text-gray-900">새 알람 만들기</h1>
+          <h1 className="text-lg font-bold text-gray-900">
+            {isEdit ? '알람 수정' : '새 알람 만들기'}
+          </h1>
           <button className="w-9 h-9 flex items-center justify-center text-gray-600">
             <Settings />
           </button>
         </div>
 
-        {/* Destination */}
+        {/* Title */}
         <div className="px-4 mt-4">
-          <p className="text-sm text-gray-600 mb-2">목적지 설정</p>
-          <button className="w-full bg-white rounded-2xl p-4 shadow-sm flex items-center gap-3">
+          <p className="text-sm text-gray-600 mb-2">알람 이름</p>
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="예: 한옥마을 출근"
+            className="w-full bg-white rounded-2xl px-4 py-3 shadow-sm text-gray-900 outline-none focus:ring-2 focus:ring-emerald-200"
+          />
+        </div>
+
+        {/* Destination */}
+        <div className="px-4 mt-5">
+          <p className="text-sm text-gray-600 mb-2">목적지</p>
+          <div className="bg-white rounded-2xl p-4 shadow-sm flex items-center gap-3">
             <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center shrink-0">
               <Place className="text-emerald-700" />
             </div>
-            <div className="flex-1 text-left min-w-0">
-              <p className="font-semibold text-gray-900 truncate">{destination.name}</p>
-              <p className="text-xs text-gray-500 truncate">{destination.address}</p>
+            <div className="flex-1 min-w-0">
+              <input
+                type="text"
+                value={destName}
+                onChange={(e) => setDestName(e.target.value)}
+                placeholder="장소 이름"
+                className="w-full font-semibold text-gray-900 outline-none bg-transparent"
+              />
+              <input
+                type="text"
+                value={destAddress}
+                onChange={(e) => setDestAddress(e.target.value)}
+                placeholder="주소"
+                className="w-full text-xs text-gray-500 outline-none bg-transparent mt-0.5"
+              />
             </div>
-            <ChevronRight className="text-gray-400 shrink-0" />
-          </button>
+          </div>
+        </div>
+
+        {/* Icon */}
+        <div className="px-4 mt-5">
+          <p className="text-sm text-gray-600 mb-2">아이콘</p>
+          <div className="grid grid-cols-3 gap-2">
+            {ICON_OPTIONS.map(({ key, label }) => {
+              const { Icon, bg, color } = iconMap[key];
+              const isSelected = icon === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setIcon(key)}
+                  className={`bg-white rounded-2xl p-3 shadow-sm flex flex-col items-center gap-1.5 transition border-2 ${
+                    isSelected ? 'border-emerald-500' : 'border-transparent'
+                  }`}
+                >
+                  <div className={`w-10 h-10 rounded-full ${bg} flex items-center justify-center`}>
+                    <Icon className={color} />
+                  </div>
+                  <span className="text-xs font-medium text-gray-700">{label}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* Target arrival time */}
@@ -526,7 +660,7 @@ function CreateAlarmView({ onBack, onCreate }: CreateAlarmViewProps) {
         {/* Date select */}
         <div className="px-4 mt-5">
           <div className="flex items-center justify-between mb-2">
-            <p className="text-sm text-gray-600">날짜 선택</p>
+            <p className="text-sm text-gray-600">날짜 선택 (여러 개 가능)</p>
             <p className="text-xs text-emerald-700 font-medium">
               {today.getFullYear()}년 {today.getMonth() + 1}월
             </p>
@@ -534,11 +668,11 @@ function CreateAlarmView({ onBack, onCreate }: CreateAlarmViewProps) {
           <div className="flex gap-2 overflow-x-auto pb-1">
             {days.map((d) => {
               const key = toDateKey(d);
-              const isSelected = key === selectedDate;
+              const isSelected = selectedDates.has(key);
               return (
                 <button
                   key={key}
-                  onClick={() => setSelectedDate(key)}
+                  onClick={() => toggleDate(key)}
                   className={`flex flex-col items-center justify-center w-16 h-20 rounded-2xl border shrink-0 transition-colors ${
                     isSelected
                       ? 'bg-emerald-50 border-emerald-300'
@@ -557,50 +691,105 @@ function CreateAlarmView({ onBack, onCreate }: CreateAlarmViewProps) {
           </div>
         </div>
 
-        {/* AI Agent */}
-        <div className="px-4 mt-5">
-          <div className="bg-white rounded-2xl p-4 shadow-sm">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-9 h-9 rounded-full bg-emerald-700 flex items-center justify-center relative">
-                <SmartToy className="text-white" sx={{ fontSize: 20 }} />
-                <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white" />
+        {/* AI Agent — hidden when editing (decorative) */}
+        {!isEdit && (
+          <div className="px-4 mt-5">
+            <div className="bg-white rounded-2xl p-4 shadow-sm">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-9 h-9 rounded-full bg-emerald-700 flex items-center justify-center relative">
+                  <SmartToy className="text-white" sx={{ fontSize: 20 }} />
+                  <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white" />
+                </div>
+                <span className="font-semibold text-gray-900">Saero AI Agent</span>
+                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md">
+                  ANALYZING
+                </span>
               </div>
-              <span className="font-semibold text-gray-900">Saero AI Agent</span>
-              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md">
-                ANALYZING
-              </span>
+              <p className="text-sm text-gray-700 italic leading-relaxed">
+                "목표 시간에 맞춰 최적의 노선을 분석해 드릴게요. 버스를 직접 고를 필요가 없습니다."
+              </p>
             </div>
-            <p className="text-sm text-gray-700 italic leading-relaxed">
-              "목표 시간에 맞춰 최적의 노선을 분석해 드릴게요. 버스를 직접 고를 필요가 없습니다."
-            </p>
           </div>
-        </div>
+        )}
 
-        {/* Route preview */}
-        <div className="px-4 mt-4">
-          <div className="rounded-2xl overflow-hidden shadow-sm bg-gray-800 h-28 relative flex items-end p-3">
-            <MapIcon
-              className="text-white/10 absolute"
-              sx={{ fontSize: 200, right: -40, top: -40 }}
-            />
-            <p className="text-white/90 text-xs relative z-10">
-              <span className="font-semibold">↻ 전주 1001번 외 2개 노선 분석 중</span>
-            </p>
+        {/* Route preview — hidden when editing (decorative) */}
+        {!isEdit && (
+          <div className="px-4 mt-4">
+            <div className="rounded-2xl overflow-hidden shadow-sm bg-gray-800 h-28 relative flex items-end p-3">
+              <MapIcon
+                className="text-white/10 absolute"
+                sx={{ fontSize: 200, right: -40, top: -40 }}
+              />
+              <p className="text-white/90 text-xs relative z-10">
+                <span className="font-semibold">↻ 전주 1001번 외 2개 노선 분석 중</span>
+              </p>
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* Create button */}
+        {/* Save button */}
         <div className="px-4 mt-6">
           <button
-            onClick={handleCreate}
+            onClick={handleSave}
             className="w-full text-white rounded-2xl py-4 flex items-center justify-center gap-2 font-semibold shadow-lg"
             style={{ background: '#00A878' }}
           >
-            <span>알람 자동 생성하기</span>
-            <AutoAwesome sx={{ fontSize: 18 }} />
+            {isEdit ? (
+              <span>저장</span>
+            ) : (
+              <>
+                <span>알람 자동 생성하기</span>
+                <AutoAwesome sx={{ fontSize: 18 }} />
+              </>
+            )}
           </button>
         </div>
+
+        {/* Delete (edit-only) */}
+        {isEdit && (
+          <div className="px-4 mt-3">
+            <button
+              type="button"
+              onClick={() => setConfirmDelete(true)}
+              className="w-full rounded-2xl py-3 flex items-center justify-center gap-2 font-semibold text-gray-600 bg-white border border-gray-200"
+            >
+              <DeleteOutline sx={{ fontSize: 20 }} />
+              <span>알람 삭제</span>
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* Delete confirm */}
+      {confirmDelete && isEdit && initialAlarm && onDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
+            <h3 className="text-base font-extrabold text-gray-900">알람을 삭제할까요?</h3>
+            <p className="mt-2 text-sm text-gray-600 leading-relaxed">
+              "{initialAlarm.title}" 알람이 영구 삭제됩니다.
+            </p>
+            <div className="mt-5 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(false)}
+                className="flex-1 rounded-xl bg-gray-100 py-3 text-sm font-bold text-gray-700"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setConfirmDelete(false);
+                  onDelete(initialAlarm.id);
+                }}
+                className="flex-1 rounded-xl bg-red-600 py-3 text-sm font-bold text-white"
+              >
+                삭제
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

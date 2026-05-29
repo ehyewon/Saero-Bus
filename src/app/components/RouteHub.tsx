@@ -25,6 +25,8 @@ import {
 } from '@mui/icons-material';
 import { HomePage } from './HomePage';
 import { ActiveTripCard } from './ActiveTripCard';
+import { SideMenu, type SideMenuKey } from './SideMenu';
+import { ProfilePage } from './ProfilePage';
 import { loadUpcomingTrip, type UpcomingTrip } from '../lib/upcoming';
 import { clearActiveTrip } from '../lib/activeTrip';
 import { loadRecentPlaces, type RecentPlace } from './RecentPlacesSection';
@@ -212,8 +214,18 @@ function signalStyles(minutes: number) {
   };
 }
 
+const MENU_LABELS: Record<SideMenuKey, string> = {
+  profile: '나의 정보',
+  notices: '공지사항',
+  help: '서비스 안내',
+  contact: '문의하기',
+  about: '앱 정보',
+};
+
 export function RouteHub() {
   const [searchOpen, setSearchOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [upcoming, setUpcoming] = useState<UpcomingTrip | null>(null);
   const [nickname, setNickname] = useState('');
   const [purpose, setPurpose] = useState<Purpose | null>(null);
@@ -384,11 +396,9 @@ export function RouteHub() {
     }
   };
 
-  const showComingSoon = (feature: string) => {
-    window.dispatchEvent(
-      new CustomEvent('showToast', { detail: `${feature}은 준비 중이에요.` }),
-    );
-  };
+  if (profileOpen) {
+    return <ProfilePage onBack={() => setProfileOpen(false)} />;
+  }
 
   if (searchOpen) {
     return <HomePage onBack={() => setSearchOpen(false)} />;
@@ -413,7 +423,7 @@ export function RouteHub() {
             </button>
             <button
               type="button"
-              onClick={() => showComingSoon('메뉴')}
+              onClick={() => setMenuOpen(true)}
               className="w-10 h-10 rounded-full flex items-center justify-center text-gray-800"
               aria-label="메뉴"
             >
@@ -712,6 +722,21 @@ export function RouteHub() {
           </>
         )}
       </div>
+
+      <SideMenu
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        onSelect={(key) => {
+          setMenuOpen(false);
+          if (key === 'profile') {
+            setProfileOpen(true);
+            return;
+          }
+          window.dispatchEvent(
+            new CustomEvent('showToast', { detail: `${MENU_LABELS[key]} (준비 중)` })
+          );
+        }}
+      />
     </div>
   );
 }
