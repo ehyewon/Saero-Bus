@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   SmartToy,
-  AccountCircle,
   ChevronLeft,
   ChevronRight,
   Add,
@@ -149,7 +148,7 @@ export function AlarmPage() {
     <div className="size-full overflow-auto relative bg-[#EAF4F0]">
       <div className="max-w-md mx-auto min-h-full pb-24">
         {/* Header */}
-        <div className="px-4 pt-2 pb-2 flex items-center gap-3">
+        <div className="px-4 pt-2 pb-3 flex items-center gap-3">
           <button
             type="button"
             onClick={() => window.dispatchEvent(new CustomEvent('switchTab', { detail: 0 }))}
@@ -158,19 +157,12 @@ export function AlarmPage() {
           >
             <ArrowBack />
           </button>
-          <div className="flex items-center gap-2">
-            <SmartToy className="text-emerald-700" sx={{ fontSize: 24 }} />
-            <span className="text-lg font-extrabold text-emerald-700">Saerobus</span>
-          </div>
-          <button className="ml-auto w-9 h-9 rounded-full flex items-center justify-center text-gray-700">
-            <AccountCircle sx={{ fontSize: 28 }} />
-          </button>
+          <h1 className="text-xl font-extrabold text-gray-900">알람 리스트</h1>
         </div>
 
-        {/* Title */}
-        <div className="px-4 mt-2">
-          <h1 className="text-2xl font-bold text-gray-900">알람 리스트</h1>
-          <p className="text-sm text-gray-600 mt-1">
+        {/* Subtitle */}
+        <div className="px-4">
+          <p className="text-sm text-gray-600">
             스마트 에이전트가 최적의 출발 시간을 안내합니다.
           </p>
         </div>

@@ -1,8 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
   ArrowBack,
-  Search,
-  AccountCircle,
   DirectionsBus,
   CheckCircle,
   CheckCircleOutline,
@@ -83,7 +81,7 @@ export function RouteDetail({
     >
       <div className="max-w-md mx-auto min-h-full pb-10">
         {/* Header */}
-        <div className="px-4 pt-4 pb-2 flex items-center justify-between bg-white/40 backdrop-blur-sm">
+        <div className="px-4 pt-4 pb-3 flex items-center gap-3 bg-white/40 backdrop-blur-sm">
           <button
             onClick={onClose}
             className="w-10 h-10 rounded-full flex items-center justify-center text-gray-700"
@@ -91,27 +89,16 @@ export function RouteDetail({
           >
             <ArrowBack />
           </button>
-          <span className="text-lg font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-            Saerobus
-          </span>
-          <div className="flex gap-1">
-            <button className="w-9 h-9 rounded-full flex items-center justify-center text-gray-700">
-              <Search />
-            </button>
-            <button className="w-9 h-9 rounded-full flex items-center justify-center text-gray-700">
-              <AccountCircle />
-            </button>
-          </div>
+          <h1 className="text-xl font-extrabold text-gray-900">노선 상세</h1>
         </div>
 
-        {/* Title */}
+        {/* Subtitle */}
         <div className="px-4 mt-4">
           <span className="inline-flex items-center gap-1 text-blue-600 font-bold text-sm">
             <DirectionsBus sx={{ fontSize: 18 }} />
             Bus {busNumber}
           </span>
-          <h1 className="text-2xl font-extrabold text-gray-900 mt-1">노선 상세</h1>
-          <p className="text-sm text-gray-600 mt-0.5">
+          <p className="text-sm text-gray-600 mt-1">
             정방향: {directionFrom} → {directionTo}
           </p>
         </div>
