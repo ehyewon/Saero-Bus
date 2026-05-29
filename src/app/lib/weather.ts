@@ -33,8 +33,23 @@ export const WEATHER_LABELS: Record<WeatherCondition, string> = {
   cloudy: '흐림',
   rain: '비',
   snow: '눈',
-  haze: '미세먼지',
+  haze: '안개',
 };
+
+/**
+ * Returns a short note when weather is likely to affect the bus ride, otherwise null.
+ * Data-message consistency: the message must match what the metrics already show
+ * (e.g. don't say "미세먼지 나빠요" when the grade is 보통).
+ */
+export function busImpactNote(w: Weather): string | null {
+  if (w.condition === 'rain') return '비 와요, 버스 지연될 수 있어요';
+  if (w.condition === 'snow') return '눈 와요, 미끄러우니 천천히';
+  const grade = pm10Grade(w.pm10);
+  if (grade === '나쁨' || grade === '매우 나쁨') return '미세먼지 나빠요, 마스크 챙기세요';
+  if (w.tempC >= 33) return '더워요, 대기 시 주의';
+  if (w.tempC <= -10) return '추워요, 대기 시 주의';
+  return null;
+}
 
 export const CONDITION_ICONS: Record<WeatherCondition, IconType> = {
   sunny: WbSunny,

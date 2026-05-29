@@ -14,8 +14,32 @@ import {
   LockOutlined,
   Visibility,
   VisibilityOff,
+  DirectionsBus,
+  Star,
 } from '@mui/icons-material';
 import { WheelTimePicker } from './WheelTimePicker';
+import { ALL_BUSES, type BusInfo } from './BusPage';
+
+const BUS_FAVORITES_KEY = 'saerobus.busFavorites.v1';
+
+function appendBusFavorite(bus: BusInfo) {
+  try {
+    const raw = localStorage.getItem(BUS_FAVORITES_KEY);
+    const list = raw ? (JSON.parse(raw) as BusInfo[]) : [];
+    if (list.some((b) => b.number === bus.number)) return;
+    localStorage.setItem(BUS_FAVORITES_KEY, JSON.stringify([...list, bus]));
+  } catch {
+    /* ignore */
+  }
+}
+
+function pickRecommendedBus(homeAddress: string, frequentAddress: string): BusInfo {
+  // Mock matching: hash-based pick so the same inputs always give the same recommendation.
+  const seed = (homeAddress + frequentAddress)
+    .split('')
+    .reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 0);
+  return ALL_BUSES[seed % ALL_BUSES.length];
+}
 
 /** localStorage keys — bump the suffix if the onboarding flow changes materially. */
 export const ONBOARDING_KEY = 'saerobus.onboarded.v2';
@@ -252,7 +276,7 @@ function snapToOperating(hhmm: string): string {
 type ArrivalSchedule = Partial<Record<DayKey, string>>;
 const DEFAULT_ARRIVAL_TIME = '오전 9:00';
 
-const ONBOARDING_STEPS = ['nickname', 'purpose', 'places', 'arrivalTime', 'permissions', 'account', 'summary'] as const;
+const ONBOARDING_STEPS = ['nickname', 'purpose', 'places', 'arrivalTime', 'routeMatch', 'permissions', 'account', 'summary'] as const;
 type OnboardingStep = (typeof ONBOARDING_STEPS)[number];
 type TravelPurpose = 'school' | 'work' | 'academy' | 'other';
 
@@ -329,6 +353,31 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   };
   const [notificationEnabled, setNotificationEnabled] = useState(true);
   const [locationEnabled, setLocationEnabled] = useState(true);
+  const [matchedBus, setMatchedBus] = useState<BusInfo | null>(null);
+  const [matchChoice, setMatchChoice] = useState<'accepted' | 'declined' | null>(null);
+
+  // When entering routeMatch step, derive a recommendation from places.
+  useEffect(() => {
+    if (step !== 'routeMatch') return;
+    if (matchedBus) return;
+    if (home && frequent) {
+      setMatchedBus(pickRecommendedBus(home.address, frequent.address));
+    }
+  }, [step, home, frequent, matchedBus]);
+
+  const acceptMatch = () => {
+    if (!matchedBus) return;
+    appendBusFavorite(matchedBus);
+    setMatchChoice('accepted');
+    const nextIndex = Math.min(activeStepIndex + 1, ONBOARDING_STEPS.length - 1);
+    setStep(ONBOARDING_STEPS[nextIndex]);
+  };
+
+  const declineMatch = () => {
+    setMatchChoice('declined');
+    const nextIndex = Math.min(activeStepIndex + 1, ONBOARDING_STEPS.length - 1);
+    setStep(ONBOARDING_STEPS[nextIndex]);
+  };
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -345,6 +394,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     (step === 'purpose' && Boolean(purpose)) ||
     step === 'places' ||
     (step === 'arrivalTime' && arrivalDays.length > 0) ||
+    (step === 'routeMatch' && matchChoice !== null) ||
     step === 'permissions' ||
     (step === 'account' && accountReady) ||
     step === 'summary';
@@ -632,6 +682,102 @@ export function Onboarding({ onComplete }: OnboardingProps) {
                     ampmLabels={{ am: '오전', pm: '오후' }}
                   />
                 </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {step === 'routeMatch' && (
+          <>
+            <h1 className="mt-8 text-[28px] leading-[1.3] font-extrabold text-gray-900">
+              이 버스가<br />맞을까요?
+            </h1>
+            <p className="mt-3 text-[15px] leading-relaxed text-gray-500">
+              {home && frequent
+                ? '입력하신 경로에 맞는 버스를 골라봤어요.\n등록하시면 메인에서 출발 시각을 자동으로 알려드릴게요.'
+                : '집과 자주 가는 곳을 모두 입력하면\n버스를 추천해드릴 수 있어요.'}
+            </p>
+
+            {matchedBus ? (
+              <>
+                <div className="mt-6 rounded-3xl bg-white border-2 border-[#007956] p-5 shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <div className="rounded-xl bg-[#007956] text-white px-4 py-2.5 font-extrabold text-lg tabular-nums shrink-0">
+                      {matchedBus.number}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[15px] font-extrabold text-gray-900 truncate">
+                        {matchedBus.name}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        배차 {matchedBus.interval} · 첫차 {matchedBus.firstBus} · 막차{' '}
+                        {matchedBus.lastBus}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-5 grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={declineMatch}
+                    className={`rounded-2xl border bg-white py-3 text-sm font-bold transition ${
+                      matchChoice === 'declined'
+                        ? 'border-gray-800 text-gray-900'
+                        : 'border-gray-300 text-gray-600'
+                    }`}
+                  >
+                    직접 고를게요
+                  </button>
+                  <button
+                    type="button"
+                    onClick={acceptMatch}
+                    className={`rounded-2xl py-3 text-sm font-extrabold flex items-center justify-center gap-1.5 transition ${
+                      matchChoice === 'accepted'
+                        ? 'bg-amber-500 text-white'
+                        : 'bg-[#007956] text-white'
+                    }`}
+                  >
+                    {matchChoice === 'accepted' ? (
+                      <>
+                        <Star sx={{ fontSize: 18 }} />
+                        등록됨
+                      </>
+                    ) : (
+                      <>
+                        <Star sx={{ fontSize: 18 }} />네, 등록할게요
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                {matchChoice === 'accepted' && (
+                  <p className="mt-3 text-xs text-[#007956] font-semibold text-center">
+                    메인에서 출발 시각을 바로 확인할 수 있어요.
+                  </p>
+                )}
+                {matchChoice === 'declined' && (
+                  <p className="mt-3 text-xs text-gray-500 text-center">
+                    버스 탭에서 직접 ⭐ 등록할 수 있어요.
+                  </p>
+                )}
+              </>
+            ) : (
+              <div className="mt-6 rounded-3xl bg-white border border-gray-200 p-5 text-center">
+                <DirectionsBus
+                  sx={{ fontSize: 36 }}
+                  className="text-gray-300 mx-auto"
+                />
+                <p className="mt-3 text-sm text-gray-500">
+                  집·자주 가는 곳이 비어 있어 추천을 만들 수 없어요.
+                </p>
+                <button
+                  type="button"
+                  onClick={declineMatch}
+                  className="mt-4 text-sm font-bold text-[#007956]"
+                >
+                  나중에 직접 등록할게요
+                </button>
               </div>
             )}
           </>

@@ -101,6 +101,7 @@ export function AlarmPage() {
   const [alarms, setAlarms] = useState<Alarm[]>(() => loadStoredAlarms() ?? initialAlarms);
   const [selectedDate, setSelectedDate] = useState<string>(todayKey);
   const [weekAnchor, setWeekAnchor] = useState<Date>(today);
+  const [calendarView, setCalendarView] = useState<'week' | 'month'>('week');
 
   useEffect(() => {
     localStorage.setItem(ALARMS_STORAGE_KEY, JSON.stringify(alarms));
@@ -122,6 +123,28 @@ export function AlarmPage() {
       return d;
     });
   }, [weekAnchor]);
+
+  // Month view — full grid for the month containing weekAnchor
+  const monthCells = useMemo(() => {
+    const y = weekAnchor.getFullYear();
+    const m = weekAnchor.getMonth();
+    const firstDow = new Date(y, m, 1).getDay();
+    const daysInMonth = new Date(y, m + 1, 0).getDate();
+    const cells: (Date | null)[] = [];
+    for (let i = 0; i < firstDow; i += 1) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d += 1) cells.push(new Date(y, m, d));
+    return cells;
+  }, [weekAnchor]);
+
+  const navigateCalendar = (delta: number) => {
+    const d = new Date(weekAnchor);
+    if (calendarView === 'week') {
+      d.setDate(d.getDate() + delta * 7);
+    } else {
+      d.setMonth(d.getMonth() + delta);
+    }
+    setWeekAnchor(d);
+  };
 
   const monthLabel = `${weekAnchor.getFullYear()}년 ${weekAnchor.getMonth() + 1}월`;
 
@@ -181,65 +204,136 @@ export function AlarmPage() {
             날짜를 고르면 그날 알람이 보여요
           </p>
           <div className="bg-white/70 backdrop-blur-sm rounded-2xl p-4 shadow-sm">
+            {/* View toggle */}
+            <div className="flex justify-end mb-2">
+              <div className="inline-flex rounded-full bg-gray-100 p-0.5 text-[11px] font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setCalendarView('week')}
+                  className={`px-3 py-1 rounded-full transition ${
+                    calendarView === 'week'
+                      ? 'bg-white text-gray-900 shadow-sm'
+                      : 'text-gray-500'
+                  }`}
+                >
+                  주간
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCalendarView('month')}
+                  className={`px-3 py-1 rounded-full transition ${
+                    calendarView === 'month'
+                      ? 'bg-white text-gray-900 shadow-sm'
+                      : 'text-gray-500'
+                  }`}
+                >
+                  월간
+                </button>
+              </div>
+            </div>
+
             <div className="flex items-center justify-between mb-3">
               <button
-                onClick={() => {
-                  const d = new Date(weekAnchor);
-                  d.setDate(d.getDate() - 7);
-                  setWeekAnchor(d);
-                }}
+                type="button"
+                onClick={() => navigateCalendar(-1)}
                 className="w-8 h-8 flex items-center justify-center text-gray-700"
+                aria-label={calendarView === 'week' ? '이전 주' : '이전 달'}
               >
                 <ChevronLeft />
               </button>
               <span className="font-semibold text-gray-900">{monthLabel}</span>
               <button
-                onClick={() => {
-                  const d = new Date(weekAnchor);
-                  d.setDate(d.getDate() + 7);
-                  setWeekAnchor(d);
-                }}
+                type="button"
+                onClick={() => navigateCalendar(1)}
                 className="w-8 h-8 flex items-center justify-center text-gray-700"
+                aria-label={calendarView === 'week' ? '다음 주' : '다음 달'}
               >
                 <ChevronRight />
               </button>
             </div>
-            <div className="grid grid-cols-5 gap-1">
-              {weekDays.map((d) => {
-                const key = toDateKey(d);
-                const isSelected = key === selectedDate;
-                const hasAlarm = datesWithAlarms.has(key);
-                return (
-                  <button
-                    key={key}
-                    onClick={() => setSelectedDate(key)}
-                    className="flex flex-col items-center py-2"
-                  >
-                    <span
-                      className={`text-xs mb-1 ${
-                        isSelected ? 'text-emerald-700 font-bold' : 'text-gray-500'
-                      }`}
+
+            {calendarView === 'week' ? (
+              <div className="grid grid-cols-5 gap-1">
+                {weekDays.map((d) => {
+                  const key = toDateKey(d);
+                  const isSelected = key === selectedDate;
+                  const hasAlarm = datesWithAlarms.has(key);
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setSelectedDate(key)}
+                      className="flex flex-col items-center py-2"
                     >
-                      {KOREAN_WEEKDAYS[d.getDay()]}
-                    </span>
+                      <span
+                        className={`text-xs mb-1 ${
+                          isSelected ? 'text-emerald-700 font-bold' : 'text-gray-500'
+                        }`}
+                      >
+                        {KOREAN_WEEKDAYS[d.getDay()]}
+                      </span>
+                      <span
+                        className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold ${
+                          isSelected
+                            ? 'bg-emerald-700 text-white'
+                            : 'text-gray-800'
+                        }`}
+                      >
+                        {d.getDate()}
+                      </span>
+                      <span
+                        className={`mt-1 block h-1 w-1 rounded-full ${
+                          hasAlarm && !isSelected ? 'bg-emerald-500' : 'bg-transparent'
+                        }`}
+                      />
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-7 gap-1 mb-1">
+                  {KOREAN_WEEKDAYS.map((w) => (
                     <span
-                      className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold ${
-                        isSelected
-                          ? 'bg-emerald-700 text-white'
-                          : 'text-gray-800'
-                      }`}
+                      key={w}
+                      className="text-[10px] text-gray-500 text-center font-semibold"
                     >
-                      {d.getDate()}
+                      {w}
                     </span>
-                    <span
-                      className={`mt-1 block h-1 w-1 rounded-full ${
-                        hasAlarm && !isSelected ? 'bg-emerald-500' : 'bg-transparent'
-                      }`}
-                    />
-                  </button>
-                );
-              })}
-            </div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-7 gap-1">
+                  {monthCells.map((d, i) => {
+                    if (!d) return <div key={`pad-${i}`} className="aspect-square" />;
+                    const key = toDateKey(d);
+                    const isSelected = key === selectedDate;
+                    const hasAlarm = datesWithAlarms.has(key);
+                    return (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => setSelectedDate(key)}
+                        className="aspect-square flex flex-col items-center justify-center py-0.5"
+                      >
+                        <span
+                          className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold ${
+                            isSelected
+                              ? 'bg-emerald-700 text-white'
+                              : 'text-gray-800'
+                          }`}
+                        >
+                          {d.getDate()}
+                        </span>
+                        <span
+                          className={`mt-0.5 block h-1 w-1 rounded-full ${
+                            hasAlarm && !isSelected ? 'bg-emerald-500' : 'bg-transparent'
+                          }`}
+                        />
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
+            )}
           </div>
         </div>
 
