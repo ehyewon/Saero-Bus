@@ -657,7 +657,7 @@ function AlarmEditorView({ onBack, onSave, initialAlarm, onDelete }: AlarmEditor
             <button
               type="button"
               onClick={() => setConfirmDelete(true)}
-              className="w-full rounded-2xl py-3 flex items-center justify-center gap-2 font-semibold text-red-600 bg-white border border-red-100"
+              className="w-full rounded-2xl py-3 flex items-center justify-center gap-2 font-semibold text-gray-600 bg-white border border-gray-200"
             >
               <DeleteOutline sx={{ fontSize: 20 }} />
               <span>알람 삭제</span>
