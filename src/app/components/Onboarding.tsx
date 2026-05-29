@@ -386,6 +386,11 @@ export function Onboarding({ onComplete }: OnboardingProps) {
     setStep(ONBOARDING_STEPS[nextIndex]);
   };
 
+  const skipStep = () => {
+    const nextIndex = Math.min(activeStepIndex + 1, ONBOARDING_STEPS.length - 1);
+    setStep(ONBOARDING_STEPS[nextIndex]);
+  };
+
   const goBack = () => {
     const prevIndex = Math.max(activeStepIndex - 1, 0);
     setStep(ONBOARDING_STEPS[prevIndex]);
@@ -833,7 +838,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
         </button>
         <button
           type="button"
-          onClick={step === 'nickname' ? () => finish(false) : goBack}
+          onClick={step === 'nickname' ? skipStep : goBack}
           className="mt-3 w-full py-2 text-sm font-semibold text-gray-400"
         >
           {step === 'nickname' ? '나중에 설정할게요' : '이전'}
