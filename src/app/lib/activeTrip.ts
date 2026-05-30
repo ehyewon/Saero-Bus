@@ -5,6 +5,7 @@ export interface ActiveTrip {
   origin?: string;
   destination: string;
   arrivalTime: string; // "HH:mm"
+  mode?: 'arrive' | 'depart';
   createdAt: number;
 }
 

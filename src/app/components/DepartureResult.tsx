@@ -10,6 +10,8 @@ import { ActiveTripCard } from './ActiveTripCard';
 interface DepartureResultProps {
   destination: string;
   arrivalTime: string; // "HH:mm"
+  mode?: 'arrive' | 'depart';
+  createdAt?: number;
   origin?: string;
   homeLabel?: string;
   destinationLabel?: string;
@@ -32,6 +34,8 @@ const fmtClockKorean = (d: Date) => {
 export function DepartureResult({
   destination,
   arrivalTime,
+  mode = 'arrive',
+  createdAt,
   origin = '덕진구 금암동',
   homeLabel = '집',
   destinationLabel,
@@ -76,6 +80,8 @@ export function DepartureResult({
           <ActiveTripCard
             destination={destination}
             arrivalTime={arrivalTime}
+            mode={mode}
+            createdAt={createdAt}
             homeLabel={homeLabel}
             destinationLabel={destinationLabel}
             onEnd={onEnd}

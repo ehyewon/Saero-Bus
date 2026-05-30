@@ -15,6 +15,8 @@ export interface UpcomingTrip {
   origin?: string;
   destination: string;
   arrivalTime: string; // "HH:mm" 24h
+  mode?: 'arrive' | 'depart';
+  createdAt?: number;
   source: 'search' | 'alarm';
 }
 
@@ -77,6 +79,8 @@ export function loadUpcomingTrip(windowHours = 2): UpcomingTrip | null {
       origin: trip.origin,
       destination: trip.destination,
       arrivalTime: trip.arrivalTime,
+      mode: trip.mode,
+      createdAt: trip.createdAt,
       source: 'search',
     };
   }
