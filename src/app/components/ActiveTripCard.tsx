@@ -23,6 +23,8 @@ interface ActiveTripCardProps {
   origin?: string;
   destination: string;
   arrivalTime: string; // "HH:mm"
+  mode?: 'arrive' | 'depart';
+  createdAt?: number;
   homeLabel?: string;
   destinationLabel?: string;
   onEnd?: () => void;
@@ -39,6 +41,8 @@ export const MOCK_BUS = '536';
 export const MOCK_STOP = '봉서마을 정류장';
 export const MOCK_WALK_MIN = 4;
 export const MOCK_NEXT_BUS = '119';
+export const MOCK_NOW_WAIT_MIN = 3;
+export const MOCK_NOW_TOTAL_MIN = MOCK_WALK_MIN + MOCK_NOW_WAIT_MIN + MOCK_RIDE_MIN;
 
 const pad = (n: number) => String(n).padStart(2, '0');
 export const fmt = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
@@ -210,6 +214,8 @@ export function ActiveTripCard({
   origin,
   destination,
   arrivalTime,
+  mode = 'arrive',
+  createdAt,
   homeLabel = '집',
   destinationLabel,
   onEnd,
@@ -288,13 +294,27 @@ export function ActiveTripCard({
     };
   }, []);
 
-  const arrivalDate = useMemo(() => toToday(arrivalTime), [arrivalTime]);
+  const departureBaseDate = useMemo(
+    () => (createdAt ? new Date(createdAt) : new Date()),
+    [createdAt],
+  );
+  const arrivalDate = useMemo(() => {
+    if (mode === 'depart') return addMin(departureBaseDate, MOCK_NOW_TOTAL_MIN);
+    return toToday(arrivalTime);
+  }, [arrivalTime, departureBaseDate, mode]);
   const departDate = useMemo(
-    () => (arrivalDate ? addMin(arrivalDate, -MOCK_PREP_MIN) : null),
-    [arrivalDate],
+    () => {
+      if (mode === 'depart') return departureBaseDate;
+      return arrivalDate ? addMin(arrivalDate, -MOCK_PREP_MIN) : null;
+    },
+    [arrivalDate, departureBaseDate, mode],
   );
   const stopArriveDate = useMemo(
-    () => (departDate ? addMin(departDate, MOCK_WALK_MIN + 1) : null),
+    () => (departDate ? addMin(departDate, mode === 'depart' ? MOCK_WALK_MIN : MOCK_WALK_MIN + 1) : null),
+    [departDate, mode],
+  );
+  const busBoardDate = useMemo(
+    () => (departDate ? addMin(departDate, MOCK_WALK_MIN + MOCK_NOW_WAIT_MIN) : null),
     [departDate],
   );
   const nextBusDate = useMemo(
@@ -344,25 +364,52 @@ export function ActiveTripCard({
       {/* Main departure card */}
       <div className="card-grad rounded-2xl p-5 shadow-sm">
         <p className="text-sm text-gray-600 leading-snug">
-          {destination || '목적지'} · {arrivalTime} 도착
+          {mode === 'depart'
+            ? `${destination || '목적지'} · 지금 출발 기준 최적 경로`
+            : `${destination || '목적지'} · ${arrivalTime} 도착`}
         </p>
 
-        <div className="mt-3 flex items-baseline gap-2">
-          <span className="text-5xl font-extrabold tabular-nums text-gray-900">
-            {departDate ? fmt(departDate) : '--:--'}
-          </span>
-          <span className="text-lg text-gray-700">에 출발</span>
-        </div>
+        {mode === 'depart' ? (
+          <div className="mt-3">
+            <div className="flex items-baseline gap-2">
+              <span className="text-5xl font-extrabold tabular-nums text-gray-900">
+                {arrivalDate ? fmt(arrivalDate) : '--:--'}
+              </span>
+              <span className="text-lg text-gray-700">도착</span>
+            </div>
+            <p className="text-sm text-emerald-700 font-extrabold mt-2">
+              지금 출발하면 가장 빨라요
+            </p>
+          </div>
+        ) : (
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-5xl font-extrabold tabular-nums text-gray-900">
+              {departDate ? fmt(departDate) : '--:--'}
+            </span>
+            <span className="text-lg text-gray-700">에 출발</span>
+          </div>
+        )}
 
         <p className="text-sm text-gray-700 mt-2">
-          <span className="font-bold text-gray-900 tabular-nums">
-            {formatMinutesUntil(minutesUntilDepart)}
-          </span>{' '}
-          나가면{' '}
-          <span className="text-emerald-700 font-bold">
-            {MOCK_BUFFER_MIN}분 여유
-          </span>
-          로 도착해요.
+          {mode === 'depart' ? (
+            <>
+              도보 <span className="font-bold text-gray-900">{MOCK_WALK_MIN}분</span> 후{' '}
+              <span className="font-bold text-gray-900">{MOCK_BUS}번</span>을 타면 총{' '}
+              <span className="text-emerald-700 font-bold">{MOCK_NOW_TOTAL_MIN}분</span>
+              만에 도착해요.
+            </>
+          ) : (
+            <>
+              <span className="font-bold text-gray-900 tabular-nums">
+                {formatMinutesUntil(minutesUntilDepart)}
+              </span>{' '}
+              나가면{' '}
+              <span className="text-emerald-700 font-bold">
+                {MOCK_BUFFER_MIN}분 여유
+              </span>
+              로 도착해요.
+            </>
+          )}
         </p>
 
         <div className="h-px bg-gray-100 my-4" />
@@ -373,12 +420,20 @@ export function ActiveTripCard({
           </span>
           <div className="flex-1 min-w-0">
             <p className="text-sm text-gray-900 font-medium">
-              {MOCK_STOP} · {stopArriveDate ? fmt(stopArriveDate) : '--:--'} 도착
+              {MOCK_STOP} ·{' '}
+              {mode === 'depart'
+                ? `${busBoardDate ? fmt(busBoardDate) : '--:--'} 탑승`
+                : `${stopArriveDate ? fmt(stopArriveDate) : '--:--'} 도착`}
             </p>
             <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
               <DirectionsWalk sx={{ fontSize: 14 }} />
-              도보 {MOCK_WALK_MIN}분 · 도착 예상{' '}
-              {arrivalDate ? fmt(addMin(arrivalDate, -6)) : '--:--'}
+              {mode === 'depart'
+                ? `도보 ${MOCK_WALK_MIN}분 · 대기 ${MOCK_NOW_WAIT_MIN}분 · 도착 예상 ${
+                    arrivalDate ? fmt(arrivalDate) : '--:--'
+                  }`
+                : `도보 ${MOCK_WALK_MIN}분 · 도착 예상 ${
+                    arrivalDate ? fmt(addMin(arrivalDate, -6)) : '--:--'
+                  }`}
             </p>
           </div>
         </div>
@@ -388,12 +443,24 @@ export function ActiveTripCard({
       <div className="mt-3 rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 flex items-center gap-2 text-sm">
         <Warning className="text-rose-500 shrink-0" sx={{ fontSize: 18 }} />
         <p className="text-gray-800">
-          놓치면 다음{' '}
-          <span className="font-bold">
-            {MOCK_NEXT_BUS}번 {nextBusDate ? fmt(nextBusDate) : '--:--'}
-          </span>{' '}
-          → 도착 {nextBusArrivalDate ? fmt(nextBusArrivalDate) : '--:--'}{' '}
-          <span className="text-rose-600 font-bold">지각 위험</span>
+          {mode === 'depart' ? (
+            <>
+              이 경로가 현재 기준 가장 빠른 후보예요. 늦게 나가면 다음{' '}
+              <span className="font-bold">
+                {MOCK_NEXT_BUS}번 {nextBusDate ? fmt(nextBusDate) : '--:--'}
+              </span>
+              으로 밀릴 수 있어요.
+            </>
+          ) : (
+            <>
+              놓치면 다음{' '}
+              <span className="font-bold">
+                {MOCK_NEXT_BUS}번 {nextBusDate ? fmt(nextBusDate) : '--:--'}
+              </span>{' '}
+              → 도착 {nextBusArrivalDate ? fmt(nextBusArrivalDate) : '--:--'}{' '}
+              <span className="text-rose-600 font-bold">지각 위험</span>
+            </>
+          )}
         </p>
       </div>
 

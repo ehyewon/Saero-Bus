@@ -15,6 +15,7 @@ import {
   type RecentPlace,
 } from './RecentPlacesSection';
 import { DepartureResult } from './DepartureResult';
+import { MOCK_NOW_TOTAL_MIN, fmt } from './ActiveTripCard';
 import { saveActiveTrip, clearActiveTrip, loadActiveTrip } from '../lib/activeTrip';
 import { type PlaceSearchResult } from '../lib/placeSearch';
 import { PlacePickerPage } from './PlacePickerPage';
@@ -42,6 +43,7 @@ export function HomePage({ onBack }: HomePageProps = {}) {
   const [pickingField, setPickingField] = useState<SearchField | null>(null);
   const [mode, setMode] = useState<Mode>('arrive');
   const [time, setTime] = useState('09:00');
+  const [tripCreatedAt, setTripCreatedAt] = useState<number | undefined>(undefined);
   const [showResults, setShowResults] = useState(false);
   const [recents, setRecents] = useState<RecentPlace[]>([]);
 
@@ -53,6 +55,8 @@ export function HomePage({ onBack }: HomePageProps = {}) {
       setOrigin(trip.origin || '');
       setDestination(trip.destination);
       setTime(trip.arrivalTime);
+      setMode(trip.mode ?? 'arrive');
+      setTripCreatedAt(trip.createdAt);
       setShowResults(true);
       return;
     }
@@ -72,9 +76,16 @@ export function HomePage({ onBack }: HomePageProps = {}) {
 
   const handleSubmit = () => {
     if (!canSubmit) return;
+    const createdAt = Date.now();
+    const arrivalTime =
+      mode === 'depart'
+        ? fmt(new Date(createdAt + MOCK_NOW_TOTAL_MIN * 60_000))
+        : time;
     pushRecentPlace({ name: destination, address: destination });
     setRecents(loadRecentPlaces());
-    saveActiveTrip({ origin: origin.trim(), destination, arrivalTime: time });
+    saveActiveTrip({ origin: origin.trim(), destination, arrivalTime, mode });
+    setTime(arrivalTime);
+    setTripCreatedAt(createdAt);
     setShowResults(true);
   };
 
@@ -130,6 +141,8 @@ export function HomePage({ onBack }: HomePageProps = {}) {
         origin={origin.trim() || '출발지 미설정'}
         destination={destination}
         arrivalTime={time}
+        mode={mode}
+        createdAt={tripCreatedAt}
         onBack={onBack ?? (() => setShowResults(false))}
         onClear={() => {
           clearActiveTrip();
@@ -239,8 +252,19 @@ export function HomePage({ onBack }: HomePageProps = {}) {
               </button>
             </div>
 
-            <p className="text-xs text-gray-500 mb-2 text-center">{formatKoreanTime(time)}</p>
-            <WheelTimePicker value={time} onChange={setTime} />
+            {mode === 'arrive' ? (
+              <>
+                <p className="text-xs text-gray-500 mb-2 text-center">{formatKoreanTime(time)}</p>
+                <WheelTimePicker value={time} onChange={setTime} />
+              </>
+            ) : (
+              <div className="rounded-2xl bg-emerald-50 border border-emerald-100 px-4 py-5 text-center">
+                <p className="text-sm font-extrabold text-emerald-900">시간 설정 없이 바로 계산해요</p>
+                <p className="text-xs text-emerald-700 mt-1">
+                  현재 시각 기준으로 가장 빨리 도착하는 버스 경로를 보여드릴게요.
+                </p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -293,7 +317,7 @@ export function HomePage({ onBack }: HomePageProps = {}) {
             disabled={!canSubmit}
             className="w-full rounded-2xl py-4 font-extrabold text-base text-white shadow-md bg-emerald-700 flex items-center justify-center transition-opacity disabled:opacity-40"
           >
-            경로 안내 시작
+            {mode === 'depart' ? '최적 경로 바로 보기' : '경로 안내 시작'}
           </button>
         </div>
       </div>

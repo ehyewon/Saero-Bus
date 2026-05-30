@@ -440,6 +440,8 @@ export function RouteHub() {
                 origin={upcoming.origin}
                 destination={upcoming.destination}
                 arrivalTime={upcoming.arrivalTime}
+                mode={upcoming.mode}
+                createdAt={upcoming.createdAt}
                 showInsights={false}
               />
             </div>
@@ -833,4 +835,3 @@ function FavoriteChip({ Icon, label, address, onClick }: FavoriteChipProps) {
     </button>
   );
 }
-
