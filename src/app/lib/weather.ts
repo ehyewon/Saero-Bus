@@ -8,6 +8,7 @@ import {
   Checkroom,
   BeachAccess,
 } from '@mui/icons-material';
+import { blogApi } from './blogApi';
 
 type IconType = typeof WbSunny;
 
@@ -68,6 +69,16 @@ function wttrCodeToCondition(code: number): WeatherCondition {
   return 'rain'; // remaining codes are all rain/drizzle/thunder
 }
 
+function blogWeatherToCondition(precipitation?: string | null, sky?: string | null): WeatherCondition {
+  const p = precipitation ?? '';
+  const s = sky ?? '';
+  if (p.includes('눈')) return 'snow';
+  if (p.includes('비')) return 'rain';
+  if (s.includes('맑')) return 'sunny';
+  if (s.includes('흐') || s.includes('구름')) return 'cloudy';
+  return 'cloudy';
+}
+
 const REAL_WEATHER_CACHE_KEY = 'saerobus.weather.real.v1';
 const REAL_WEATHER_TTL_MS = 30 * 60 * 1000; // 30 min — wttr.in updates roughly that often
 
@@ -94,6 +105,30 @@ export async function fetchRealWeather(): Promise<Weather | null> {
     }
   } catch {
     /* ignore — fall through to network */
+  }
+
+  try {
+    const api = await blogApi.getWeather(35.8242, 127.1480);
+    const tempC = api.now.temp_c;
+    if (typeof tempC === 'number') {
+      const weather: Weather = {
+        condition: blogWeatherToCondition(api.now.precipitation_type, api.now.sky),
+        tempC,
+        humidity: 55,
+        pm10: 38,
+      };
+      try {
+        sessionStorage.setItem(
+          REAL_WEATHER_CACHE_KEY,
+          JSON.stringify({ ts: Date.now(), weather } satisfies CachedRealWeather),
+        );
+      } catch {
+        /* ignore */
+      }
+      return weather;
+    }
+  } catch {
+    /* fall through to the public fallback */
   }
 
   try {

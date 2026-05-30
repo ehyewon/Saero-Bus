@@ -2,6 +2,7 @@
 // soonest enabled alarm whose time is within the next N hours (default 2h).
 
 import { loadActiveTrip, type ActiveTrip } from './activeTrip';
+import type { PlanResponse } from './blogApi';
 
 interface StoredAlarm {
   id: string;
@@ -17,6 +18,8 @@ export interface UpcomingTrip {
   arrivalTime: string; // "HH:mm" 24h
   mode?: 'arrive' | 'depart';
   createdAt?: number;
+  plan?: PlanResponse;
+  noServiceReason?: string;
   source: 'search' | 'alarm';
 }
 
@@ -81,6 +84,8 @@ export function loadUpcomingTrip(windowHours = 2): UpcomingTrip | null {
       arrivalTime: trip.arrivalTime,
       mode: trip.mode,
       createdAt: trip.createdAt,
+      plan: trip.plan,
+      noServiceReason: trip.noServiceReason,
       source: 'search',
     };
   }

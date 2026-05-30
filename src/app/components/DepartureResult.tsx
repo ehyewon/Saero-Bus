@@ -6,12 +6,15 @@ import {
   ArrowBack,
 } from '@mui/icons-material';
 import { ActiveTripCard } from './ActiveTripCard';
+import type { PlanResponse } from '../lib/blogApi';
 
 interface DepartureResultProps {
   destination: string;
   arrivalTime: string; // "HH:mm"
   mode?: 'arrive' | 'depart';
   createdAt?: number;
+  plan?: PlanResponse;
+  noServiceReason?: string;
   origin?: string;
   homeLabel?: string;
   destinationLabel?: string;
@@ -36,6 +39,8 @@ export function DepartureResult({
   arrivalTime,
   mode = 'arrive',
   createdAt,
+  plan,
+  noServiceReason,
   origin = '덕진구 금암동',
   homeLabel = '집',
   destinationLabel,
@@ -78,10 +83,13 @@ export function DepartureResult({
         {/* Trip card (subheader + main card + warning) */}
         <div className="mt-3">
           <ActiveTripCard
+            origin={origin}
             destination={destination}
             arrivalTime={arrivalTime}
             mode={mode}
             createdAt={createdAt}
+            plan={plan}
+            noServiceReason={noServiceReason}
             homeLabel={homeLabel}
             destinationLabel={destinationLabel}
             onEnd={onEnd}

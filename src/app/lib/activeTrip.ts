@@ -1,11 +1,15 @@
 // Active trip state shared between the HomePage search flow and RouteHub.
 // Persisted in localStorage so the hub can show a live trip card after search.
 
+import type { PlanResponse } from './blogApi';
+
 export interface ActiveTrip {
   origin?: string;
   destination: string;
   arrivalTime: string; // "HH:mm"
   mode?: 'arrive' | 'depart';
+  plan?: PlanResponse;
+  noServiceReason?: string;
   createdAt: number;
 }
 

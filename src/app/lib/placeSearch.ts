@@ -1,3 +1,5 @@
+import { blogApi } from './blogApi';
+
 export interface PlaceSearchResult {
   id: string;
   name: string;
@@ -249,15 +251,28 @@ async function searchMapPlaces(query: string, limit = 8): Promise<PlaceSearchRes
   });
 }
 
+async function searchBusStops(query: string, limit = 8): Promise<PlaceSearchResult[]> {
+  const data = await blogApi.searchStops(query);
+  return data.slice(0, limit).map((stop) => ({
+    id: `blog-stop-${stop.stop_id}`,
+    name: stop.stop_name,
+    address: stop.stop_name,
+    category: '정류장' as const,
+    lat: stop.lat,
+    lon: stop.lng,
+  }));
+}
+
 export async function searchPlaces(query: string, limit = 8): Promise<PlaceSearchResult[]> {
   const q = query.trim();
   if (!q) return [];
 
   const local = searchLocalPlaces(q);
+  const stops = await searchBusStops(q, limit).catch(() => []);
   const remote = await searchMapPlaces(q, limit).catch(() => []);
   const seen = new Set<string>();
 
-  return [...local, ...remote]
+  return [...stops, ...local, ...remote]
     .filter((place) => {
       const key = normalize(`${place.name}-${place.address}`);
       if (seen.has(key)) return false;

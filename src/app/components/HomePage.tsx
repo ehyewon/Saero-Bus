@@ -19,6 +19,7 @@ import { MOCK_NOW_TOTAL_MIN, fmt } from './ActiveTripCard';
 import { saveActiveTrip, clearActiveTrip, loadActiveTrip } from '../lib/activeTrip';
 import { type PlaceSearchResult } from '../lib/placeSearch';
 import { PlacePickerPage } from './PlacePickerPage';
+import { blogApi, type LatLng, type PlanResponse } from '../lib/blogApi';
 
 interface HomePageProps {
   onBack?: () => void;
@@ -28,6 +29,7 @@ type Mode = 'arrive' | 'depart';
 type SearchField = 'origin' | 'destination';
 
 const pad = (n: number) => String(n).padStart(2, '0');
+const FALLBACK_ORIGIN: LatLng = { lat: 35.8242, lng: 127.1480 };
 
 const formatKoreanTime = (hhmm: string) => {
   const [h, m] = hhmm.split(':').map(Number);
@@ -40,10 +42,14 @@ const formatKoreanTime = (hhmm: string) => {
 export function HomePage({ onBack }: HomePageProps = {}) {
   const [origin, setOrigin] = useState('');
   const [destination, setDestination] = useState('');
+  const [destinationCoord, setDestinationCoord] = useState<LatLng | null>(null);
   const [pickingField, setPickingField] = useState<SearchField | null>(null);
   const [mode, setMode] = useState<Mode>('arrive');
   const [time, setTime] = useState('09:00');
   const [tripCreatedAt, setTripCreatedAt] = useState<number | undefined>(undefined);
+  const [tripPlan, setTripPlan] = useState<PlanResponse | undefined>(undefined);
+  const [noServiceReason, setNoServiceReason] = useState<string | undefined>(undefined);
+  const [submitting, setSubmitting] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const [recents, setRecents] = useState<RecentPlace[]>([]);
 
@@ -57,6 +63,8 @@ export function HomePage({ onBack }: HomePageProps = {}) {
       setTime(trip.arrivalTime);
       setMode(trip.mode ?? 'arrive');
       setTripCreatedAt(trip.createdAt);
+      setTripPlan(trip.plan);
+      setNoServiceReason(trip.noServiceReason);
       setShowResults(true);
       return;
     }
@@ -65,6 +73,7 @@ export function HomePage({ onBack }: HomePageProps = {}) {
       const quick = sessionStorage.getItem('saerobus.quickDestination');
       if (quick) {
         setDestination(quick);
+        setDestinationCoord(null);
         sessionStorage.removeItem('saerobus.quickDestination');
       }
     } catch {
@@ -74,23 +83,95 @@ export function HomePage({ onBack }: HomePageProps = {}) {
 
   const canSubmit = destination.trim().length > 0;
 
-  const handleSubmit = () => {
-    if (!canSubmit) return;
+  const getCurrentCoord = () =>
+    new Promise<LatLng>((resolve) => {
+      if (!navigator.geolocation) {
+        resolve(FALLBACK_ORIGIN);
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => resolve(FALLBACK_ORIGIN),
+        { enableHighAccuracy: false, maximumAge: 60_000, timeout: 8_000 },
+      );
+    });
+
+  const targetIsoFor = (hhmm: string) => {
+    const [h, m] = hhmm.split(':').map(Number);
+    const d = new Date();
+    d.setHours(Number.isFinite(h) ? h : d.getHours(), Number.isFinite(m) ? m : d.getMinutes(), 0, 0);
+    if (d.getTime() < Date.now()) d.setDate(d.getDate() + 1);
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
+      d.getHours(),
+    )}:${pad(d.getMinutes())}:00+09:00`;
+  };
+
+  const hasAnyRemainingBusToday = async () => {
+    const routes = await blogApi.listRoutes();
+    const now = new Date();
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    return routes.some((route) => {
+      const raw = route.last_time?.replace(/\D/g, '').padStart(4, '0');
+      if (!raw) return false;
+      const h = Number(raw.slice(0, 2));
+      const m = Number(raw.slice(2, 4));
+      if (!Number.isFinite(h) || !Number.isFinite(m)) return false;
+      return h * 60 + m >= nowMin;
+    });
+  };
+
+  const handleSubmit = async () => {
+    if (!canSubmit || submitting) return;
+    setSubmitting(true);
     const createdAt = Date.now();
     const arrivalTime =
       mode === 'depart'
         ? fmt(new Date(createdAt + MOCK_NOW_TOTAL_MIN * 60_000))
         : time;
+    let plan: PlanResponse | undefined;
+    let noService: string | undefined;
+    try {
+      if (mode === 'depart') {
+        const hasRemaining = await hasAnyRemainingBusToday();
+        if (!hasRemaining) {
+          noService = '오늘 운행 가능한 버스가 더 이상 없어요.';
+        }
+      }
+      const originCoord = await getCurrentCoord();
+      if (!noService) {
+        plan = await blogApi.makePlan({
+          origin: originCoord,
+          destination: destinationCoord,
+          destination_query: destination.trim(),
+          target_arrival: targetIsoFor(arrivalTime),
+          user_speed_mps: 1.3,
+        });
+        if (!plan.recommended.legs.some((leg) => leg.mode === 'bus')) {
+          noService = '탑승 가능한 버스가 없어요.';
+        }
+      }
+    } catch {
+      plan = undefined;
+      window.dispatchEvent(
+        new CustomEvent('showToast', {
+          detail: 'API 연결이 불안정해서 임시 경로로 보여드려요.',
+        }),
+      );
+    }
     pushRecentPlace({ name: destination, address: destination });
     setRecents(loadRecentPlaces());
-    saveActiveTrip({ origin: origin.trim(), destination, arrivalTime, mode });
+    saveActiveTrip({ origin: origin.trim(), destination, arrivalTime, mode, plan, noServiceReason: noService });
     setTime(arrivalTime);
     setTripCreatedAt(createdAt);
+    setTripPlan(plan);
+    setNoServiceReason(noService);
+    setSubmitting(false);
     setShowResults(true);
   };
 
   const pickRecent = (place: RecentPlace) => {
     setDestination(place.name || place.address);
+    setDestinationCoord(null);
   };
 
   const deleteRecent = (address: string) => {
@@ -105,6 +186,11 @@ export function HomePage({ onBack }: HomePageProps = {}) {
       return;
     }
     setDestination(place.name);
+    setDestinationCoord(
+      typeof place.lat === 'number' && typeof place.lon === 'number'
+        ? { lat: place.lat, lng: place.lon }
+        : null,
+    );
     pushRecentPlace({ name: place.name, address: place.address });
     setRecents(loadRecentPlaces());
     setPickingField(null);
@@ -121,6 +207,7 @@ export function HomePage({ onBack }: HomePageProps = {}) {
       return;
     }
     setDestination(value);
+    setDestinationCoord(null);
   };
 
   const list = useMemo(() => {
@@ -143,6 +230,8 @@ export function HomePage({ onBack }: HomePageProps = {}) {
         arrivalTime={time}
         mode={mode}
         createdAt={tripCreatedAt}
+        plan={tripPlan}
+        noServiceReason={noServiceReason}
         onBack={onBack ?? (() => setShowResults(false))}
         onClear={() => {
           clearActiveTrip();
@@ -314,10 +403,10 @@ export function HomePage({ onBack }: HomePageProps = {}) {
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={!canSubmit}
+            disabled={!canSubmit || submitting}
             className="w-full rounded-2xl py-4 font-extrabold text-base text-white shadow-md bg-emerald-700 flex items-center justify-center transition-opacity disabled:opacity-40"
           >
-            {mode === 'depart' ? '최적 경로 바로 보기' : '경로 안내 시작'}
+            {submitting ? 'API 경로 계산 중…' : mode === 'depart' ? '최적 경로 바로 보기' : '경로 안내 시작'}
           </button>
         </div>
       </div>
