@@ -195,7 +195,7 @@ declare global {
   }
 }
 
-const NAVER_MAPS_CLIENT_ID = import.meta.env.VITE_NAVER_MAPS_CLIENT_ID as
+const NAVER_MAPS_CLIENT_ID = import.meta.env.VITE_NAVER_MAP_CLIENT_ID as
   | string
   | undefined;
 
