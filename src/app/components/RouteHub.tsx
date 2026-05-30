@@ -442,6 +442,8 @@ export function RouteHub() {
                 arrivalTime={upcoming.arrivalTime}
                 mode={upcoming.mode}
                 createdAt={upcoming.createdAt}
+                plan={upcoming.plan}
+                noServiceReason={upcoming.noServiceReason}
                 showInsights={false}
               />
             </div>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { MouseEvent } from 'react';
 import {
   Search,
@@ -13,14 +13,17 @@ import {
   People,
   Refresh,
 } from '@mui/icons-material';
+import { blogApi, type RouteDetailResponse, type RouteSummary } from '../lib/blogApi';
 
 export interface BusInfo {
+  stdid?: number;
   number: string;
   name: string;
   type: 'express' | 'trunk' | 'branch' | 'local';
   firstBus: string;
   lastBus: string;
   interval: string;
+  source?: 'api' | 'mock';
 }
 
 const FAVORITES_KEY = 'saerobus.busFavorites.v1';
@@ -69,6 +72,25 @@ export const ALL_BUSES: BusInfo[] = [
   { number: '401', name: '선릉역 - 삼성역', type: 'branch', firstBus: '06:30', lastBus: '22:00', interval: '20-25분' },
 ];
 
+const busTypeFromNo = (number: string): BusInfo['type'] => {
+  if (number.length >= 4) return 'express';
+  const n = Number(number);
+  if (Number.isFinite(n) && n >= 500) return 'branch';
+  if (Number.isFinite(n) && n < 100) return 'local';
+  return 'trunk';
+};
+
+const routeToBusInfo = (route: RouteSummary): BusInfo => ({
+  stdid: route.stdid,
+  number: route.brt_no,
+  name: `${route.start_name || '기점'} - ${route.end_name || '종점'}`,
+  type: busTypeFromNo(route.brt_no),
+  firstBus: blogApi.hhmm(route.first_time) || '--:--',
+  lastBus: blogApi.hhmm(route.last_time) || '--:--',
+  interval: 'API',
+  source: 'api',
+});
+
 const STOP_POOL = [
   '시청 정류장', '중앙로', '동산동 주민센터', '전통시장 입구', '대학교 정문',
   '시립병원', '근린공원', '문화회관 앞', '체육관 사거리', '백화점',
@@ -76,6 +98,8 @@ const STOP_POOL = [
 ];
 
 export interface Stop {
+  stopId?: number;
+  stopOrd?: number;
   name: string;
   lat: number;
   lon: number;
@@ -156,6 +180,7 @@ interface ArrivalAtStop {
   minutes: number;
   stopsAway: number;
   crowd: Crowd;
+  source?: 'api' | 'mock';
 }
 
 export interface Dispatch {
@@ -212,25 +237,49 @@ const crowdColor: Record<Crowd, string> = {
 export function BusPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [favorites, setFavorites] = useState<BusInfo[]>([]);
+  const [apiBuses, setApiBuses] = useState<BusInfo[]>([]);
   const [selectedBus, setSelectedBus] = useState<BusInfo | null>(null);
   const [, setTick] = useState(0);
   const [spinning, setSpinning] = useState(false);
 
   useEffect(() => {
+    let alive = true;
     const stored = loadBusFavorites();
     setFavorites(stored);
+    blogApi
+      .listRoutes()
+      .then((routes) => {
+        if (!alive) return;
+        const seen = new Set<string>();
+        const buses = routes
+          .map(routeToBusInfo)
+          .filter((bus) => {
+            const key = `${bus.number}-${bus.stdid}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+        setApiBuses(buses);
+      })
+      .catch(() => {
+        if (alive) setApiBuses([]);
+      });
     try {
       const pending = sessionStorage.getItem('saerobus.openBus');
       if (pending) {
         sessionStorage.removeItem('saerobus.openBus');
         const found =
           stored.find((b) => b.number === pending) ??
+          apiBuses.find((b) => b.number === pending) ??
           ALL_BUSES.find((b) => b.number === pending);
         if (found) setSelectedBus(found);
       }
     } catch {
       /* ignore */
     }
+    return () => {
+      alive = false;
+    };
   }, []);
 
   // Auto-refresh every 5s so countdowns stay fresh.
@@ -247,6 +296,7 @@ export function BusPage() {
   };
 
   const favoriteNumbers = new Set(favorites.map((f) => f.number));
+  const catalog = apiBuses.length > 0 ? apiBuses : ALL_BUSES;
 
   const toggleFavorite = (bus: BusInfo) => {
     setFavorites((prev) => {
@@ -290,8 +340,8 @@ export function BusPage() {
 
   const visibleFavorites = searchQuery ? favorites.filter(matches) : favorites;
   const visiblePopular = searchQuery
-    ? ALL_BUSES.filter(matches)
-    : ALL_BUSES.filter((b) => !favoriteNumbers.has(b.number)).slice(0, 5);
+    ? catalog.filter(matches).slice(0, 20)
+    : catalog.filter((b) => !favoriteNumbers.has(b.number)).slice(0, 5);
 
   const noResults =
     searchQuery && visibleFavorites.length === 0 && visiblePopular.length === 0;
@@ -468,13 +518,83 @@ type LocationState =
   | { status: 'denied' };
 
 function BusDetailView({ bus, isFavorite, onBack, onToggleFavorite }: BusDetailViewProps) {
-  const stops = mockStops(bus);
-  const runningBuses = mockRunningBuses(bus, stops.length);
+  const [routeDetail, setRouteDetail] = useState<RouteDetailResponse | null>(null);
+  const [apiRunningBuses, setApiRunningBuses] = useState<RunningBus[] | null>(null);
+  const [apiDepartures, setApiDepartures] = useState<Dispatch[] | null>(null);
+  const [apiArrivals, setApiArrivals] = useState<ArrivalAtStop[] | null>(null);
+
+  useEffect(() => {
+    if (!bus.stdid) return;
+    let alive = true;
+    blogApi
+      .getRoute(bus.stdid)
+      .then((detail) => {
+        if (alive) setRouteDetail(detail);
+      })
+      .catch(() => {
+        if (alive) setRouteDetail(null);
+      });
+    blogApi
+      .getRouteBuses(bus.stdid)
+      .then((items) => {
+        if (!alive) return;
+        setApiRunningBuses(
+          items
+            .filter((item) => typeof item.stop_ord === 'number')
+            .map((item) => ({
+              stopIndex: Math.max(0, Number(item.stop_ord) - 1),
+              crowd: '보통' as Crowd,
+            })),
+        );
+      })
+      .catch(() => {
+        if (alive) setApiRunningBuses(null);
+      });
+    blogApi
+      .getRouteDepartures(bus.stdid)
+      .then((list) => {
+        if (!alive) return;
+        const now = new Date();
+        const todayMin = now.getHours() * 60 + now.getMinutes();
+        const next = list.departures
+          .map((raw) => {
+            const normalized = raw.replace(/\D/g, '').padStart(4, '0');
+            const h = Number(normalized.slice(0, 2));
+            const m = Number(normalized.slice(2, 4));
+            const total = h * 60 + m;
+            const minutesUntil = total >= todayMin ? total - todayMin : total + 24 * 60 - todayMin;
+            return { time: `${pad2(h)}:${pad2(m)}`, minutesUntil };
+          })
+          .sort((a, b) => a.minutesUntil - b.minutesUntil)
+          .slice(0, 3);
+        setApiDepartures(next);
+      })
+      .catch(() => {
+        if (alive) setApiDepartures(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [bus.stdid]);
+
+  const stops = useMemo(
+    () =>
+      routeDetail?.stops.map((stop) => ({
+        stopId: stop.stop_id,
+        stopOrd: stop.stop_ord,
+        name: stop.stop_name,
+        lat: stop.lat,
+        lon: stop.lng,
+      })) ?? mockStops(bus),
+    [bus, routeDetail],
+  );
+  const runningBuses = apiRunningBuses ?? mockRunningBuses(bus, stops.length);
   const busesByStop = new Map<number, RunningBus[]>();
   runningBuses.forEach((rb) => {
-    const list = busesByStop.get(rb.stopIndex) ?? [];
+    const stopIndex = Math.max(0, Math.min(stops.length - 1, rb.stopIndex));
+    const list = busesByStop.get(stopIndex) ?? [];
     list.push(rb);
-    busesByStop.set(rb.stopIndex, list);
+    busesByStop.set(stopIndex, list);
   });
 
   const [location, setLocation] = useState<LocationState>({ status: 'pending' });
@@ -510,11 +630,43 @@ function BusDetailView({ bus, isFavorite, onBack, onToggleFavorite }: BusDetailV
   }
 
   const arrivalsAtNearest =
-    nearestStopIndex !== null
-      ? mockArrivalsAtStop(runningBuses, nearestStopIndex)
-      : [];
+    apiArrivals ?? (nearestStopIndex !== null ? mockArrivalsAtStop(runningBuses, nearestStopIndex) : []);
 
-  const nextDispatches = mockNextDispatches(bus, 3);
+  useEffect(() => {
+    if (nearestStopIndex === null) {
+      setApiArrivals(null);
+      return;
+    }
+    const stopId = stops[nearestStopIndex]?.stopId;
+    if (!stopId) {
+      setApiArrivals(null);
+      return;
+    }
+    let alive = true;
+    blogApi
+      .getStopArrivals(stopId)
+      .then((board) => {
+        if (!alive) return;
+        const arrivals = board.arrivals
+          .filter((item) => item.brt_no === bus.number || item.stdid === bus.stdid)
+          .map((item) => ({
+            minutes: item.eta_sec ? Math.max(1, Math.round(item.eta_sec / 60)) : Math.max(1, item.stops_away * 2),
+            stopsAway: item.stops_away,
+            crowd: '보통' as Crowd,
+            source: 'api' as const,
+          }))
+          .sort((a, b) => a.minutes - b.minutes);
+        setApiArrivals(arrivals);
+      })
+      .catch(() => {
+        if (alive) setApiArrivals(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [bus.number, bus.stdid, nearestStopIndex, stops]);
+
+  const nextDispatches = apiDepartures ?? mockNextDispatches(bus, 3);
 
   return (
     <div className="size-full bg-[#EAF4F0] overflow-auto">
@@ -560,7 +712,9 @@ function BusDetailView({ bus, isFavorite, onBack, onToggleFavorite }: BusDetailV
               </div>
               <div className="min-w-0">
                 <div className="font-bold text-gray-900 truncate">{bus.name}</div>
-                <div className="text-xs text-gray-500">{busTypeName[bus.type]}버스</div>
+              <div className="text-xs text-gray-500">
+                {busTypeName[bus.type]}버스{bus.source === 'api' ? ' · API' : ''}
+              </div>
               </div>
             </div>
             <div className="grid grid-cols-3 gap-2 text-xs mt-3 pt-3 border-t border-gray-100">
@@ -590,23 +744,29 @@ function BusDetailView({ bus, isFavorite, onBack, onToggleFavorite }: BusDetailV
                 다음 배차
               </div>
               <div className="flex gap-2 flex-wrap">
-                {nextDispatches.map((d, i) => (
-                  <div
-                    key={d.time}
-                    className={`rounded-xl px-3 py-2 ${
-                      i === 0
-                        ? 'bg-emerald-700 text-white'
-                        : 'bg-emerald-50 text-emerald-800'
-                    }`}
-                  >
-                    <div className="text-sm font-extrabold tabular-nums leading-none">
-                      {d.time}
+                {nextDispatches.length > 0 ? (
+                  nextDispatches.map((d, i) => (
+                    <div
+                      key={d.time}
+                      className={`rounded-xl px-3 py-2 ${
+                        i === 0
+                          ? 'bg-emerald-700 text-white'
+                          : 'bg-emerald-50 text-emerald-800'
+                      }`}
+                    >
+                      <div className="text-sm font-extrabold tabular-nums leading-none">
+                        {d.time}
+                      </div>
+                      <div className={`text-[10px] mt-0.5 ${i === 0 ? 'opacity-90' : 'opacity-70'}`}>
+                        {d.minutesUntil <= 0 ? '곧 출발' : `${d.minutesUntil}분 후`}
+                      </div>
                     </div>
-                    <div className={`text-[10px] mt-0.5 ${i === 0 ? 'opacity-90' : 'opacity-70'}`}>
-                      {d.minutesUntil <= 0 ? '곧 출발' : `${d.minutesUntil}분 후`}
-                    </div>
+                  ))
+                ) : (
+                  <div className="w-full rounded-xl bg-amber-50 text-amber-800 px-3 py-2 text-sm font-semibold">
+                    오늘은 탑승 가능한 버스가 없어요
                   </div>
-                ))}
+                )}
               </div>
             </div>
           </div>
@@ -687,7 +847,7 @@ function BusDetailView({ bus, isFavorite, onBack, onToggleFavorite }: BusDetailV
             )}
 
             <p className="text-[11px] text-gray-400 mt-2">
-              ※ 시연용 예시 데이터입니다. 실시간 연동 시 갱신돼요.
+              ※ {bus.stdid ? '제공된 API 기준으로 갱신돼요. dummy 응답은 API 표시와 다를 수 있어요.' : '시연용 예시 데이터입니다. 실시간 연동 시 갱신돼요.'}
             </p>
           </div>
 

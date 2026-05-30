@@ -16,8 +16,8 @@ import {
   estimateWalkingSpeedMpm,
   formatWalkingSpeed,
   loadProfile,
-  weatherCodeToSummary,
 } from '../lib/tripInsights';
+import { blogApi, type PlanResponse } from '../lib/blogApi';
 
 interface ActiveTripCardProps {
   origin?: string;
@@ -25,6 +25,8 @@ interface ActiveTripCardProps {
   arrivalTime: string; // "HH:mm"
   mode?: 'arrive' | 'depart';
   createdAt?: number;
+  plan?: PlanResponse;
+  noServiceReason?: string;
   homeLabel?: string;
   destinationLabel?: string;
   onEnd?: () => void;
@@ -46,6 +48,11 @@ export const MOCK_NOW_TOTAL_MIN = MOCK_WALK_MIN + MOCK_NOW_WAIT_MIN + MOCK_RIDE_
 
 const pad = (n: number) => String(n).padStart(2, '0');
 export const fmt = (d: Date) => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+const parseIso = (value?: string | null): Date | null => {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
 const formatMinutesUntil = (minutes: number) => {
   if (minutes <= 0) return '지금';
   const hours = Math.floor(minutes / 60);
@@ -97,6 +104,19 @@ type WeatherSnapshot = {
   pm10: number | null;
 };
 
+const conditionFromBlogWeather = (
+  precipitation?: string | null,
+  sky?: string | null,
+): WeatherSnapshot['icon'] => {
+  const p = precipitation ?? '';
+  const s = sky ?? '';
+  if (p.includes('눈')) return 'snow';
+  if (p.includes('비')) return 'rain';
+  if (s.includes('맑')) return 'sun';
+  if (s.includes('안개')) return 'fog';
+  return 'cloud';
+};
+
 type TransferSnapshot = {
   busNumber: string;
   transferStop: string;
@@ -118,46 +138,21 @@ const resolveWeather = async (): Promise<WeatherSnapshot | null> => {
     );
   });
 
-  const url = new URL('https://api.open-meteo.com/v1/forecast');
-  url.searchParams.set('latitude', String(coords.lat));
-  url.searchParams.set('longitude', String(coords.lon));
-  url.searchParams.set('current', 'temperature_2m,relative_humidity_2m,weather_code');
-  url.searchParams.set('timezone', 'auto');
-
-  const airUrl = new URL('https://air-quality-api.open-meteo.com/v1/air-quality');
-  airUrl.searchParams.set('latitude', String(coords.lat));
-  airUrl.searchParams.set('longitude', String(coords.lon));
-  airUrl.searchParams.set('current', 'pm2_5,pm10');
-  airUrl.searchParams.set('timezone', 'auto');
-
-  const [weatherRes, airRes] = await Promise.all([fetch(url.toString()), fetch(airUrl.toString())]);
-  if (!weatherRes.ok) return null;
-
-  const weatherData = await weatherRes.json();
-  const airData = airRes.ok ? await airRes.json() : null;
-  const code = Number(weatherData?.current?.weather_code);
-  if (Number.isNaN(code)) return null;
-  const summary = weatherCodeToSummary(code);
+  const weatherData = await blogApi.getWeather(coords.lat, coords.lon);
+  const tempC = weatherData.now.temp_c;
+  if (typeof tempC !== 'number') return null;
+  const icon = conditionFromBlogWeather(
+    weatherData.now.precipitation_type,
+    weatherData.now.sky,
+  );
 
   return {
-    label: summary.label,
-    icon: summary.icon,
-    tempC:
-      typeof weatherData?.current?.temperature_2m === 'number'
-        ? Number(weatherData.current.temperature_2m)
-        : null,
-    humidity:
-      typeof weatherData?.current?.relative_humidity_2m === 'number'
-        ? Number(weatherData.current.relative_humidity_2m)
-        : null,
-    pm25:
-      typeof airData?.current?.pm2_5 === 'number'
-        ? Number(airData.current.pm2_5)
-        : null,
-    pm10:
-      typeof airData?.current?.pm10 === 'number'
-        ? Number(airData.current.pm10)
-        : null,
+    label: weatherData.now.sky ?? weatherData.now.precipitation_type ?? '날씨',
+    icon,
+    tempC,
+    humidity: null,
+    pm25: null,
+    pm10: null,
   };
 };
 
@@ -216,6 +211,8 @@ export function ActiveTripCard({
   arrivalTime,
   mode = 'arrive',
   createdAt,
+  plan,
+  noServiceReason,
   homeLabel = '집',
   destinationLabel,
   onEnd,
@@ -298,16 +295,26 @@ export function ActiveTripCard({
     () => (createdAt ? new Date(createdAt) : new Date()),
     [createdAt],
   );
+  const recommended = plan?.recommended;
+  const apiBusLeg = recommended?.legs.find((leg) => leg.mode === 'bus');
+  const apiFirstWalkLeg = recommended?.legs.find((leg) => leg.mode === 'walk');
+  const apiWaitLeg = recommended?.legs.find((leg) => leg.mode === 'wait');
+  const apiLeaveByDate = parseIso(recommended?.leave_by);
+  const apiArrivalDate = parseIso(recommended?.arrival_eta);
+  const apiBusStartDate = parseIso(apiBusLeg?.start_iso);
+  const apiBusEndDate = parseIso(apiBusLeg?.end_iso);
   const arrivalDate = useMemo(() => {
+    if (apiArrivalDate) return apiArrivalDate;
     if (mode === 'depart') return addMin(departureBaseDate, MOCK_NOW_TOTAL_MIN);
     return toToday(arrivalTime);
-  }, [arrivalTime, departureBaseDate, mode]);
+  }, [apiArrivalDate, arrivalTime, departureBaseDate, mode]);
   const departDate = useMemo(
     () => {
+      if (apiLeaveByDate) return apiLeaveByDate;
       if (mode === 'depart') return departureBaseDate;
       return arrivalDate ? addMin(arrivalDate, -MOCK_PREP_MIN) : null;
     },
-    [arrivalDate, departureBaseDate, mode],
+    [apiLeaveByDate, arrivalDate, departureBaseDate, mode],
   );
   const stopArriveDate = useMemo(
     () => (departDate ? addMin(departDate, mode === 'depart' ? MOCK_WALK_MIN : MOCK_WALK_MIN + 1) : null),
@@ -332,6 +339,38 @@ export function ActiveTripCard({
 
   const originLabel = origin || homeLabel || '집';
   const destLabel = destinationLabel || destination || '목적지';
+  const busNumber = apiBusLeg?.brt_no ?? MOCK_BUS;
+  const boardingStop = apiBusLeg?.from_name ?? apiFirstWalkLeg?.to_name ?? MOCK_STOP;
+  const arrivalStop = apiBusLeg?.to_name ?? '하차정류장';
+  const missProbabilityPct =
+    typeof recommended?.miss_probability === 'number'
+      ? Math.round(recommended.miss_probability * 100)
+      : null;
+  const apiTotalMin =
+    apiLeaveByDate && apiArrivalDate
+      ? Math.max(0, Math.round((apiArrivalDate.getTime() - apiLeaveByDate.getTime()) / 60_000))
+      : null;
+  const apiWalkMin =
+    apiFirstWalkLeg?.start_iso && apiFirstWalkLeg.end_iso
+      ? Math.max(
+          0,
+          Math.round(
+            (new Date(apiFirstWalkLeg.end_iso).getTime() -
+              new Date(apiFirstWalkLeg.start_iso).getTime()) /
+              60_000,
+          ),
+        )
+      : null;
+  const apiWaitMin =
+    apiWaitLeg?.start_iso && apiWaitLeg.end_iso
+      ? Math.max(
+          0,
+          Math.round(
+            (new Date(apiWaitLeg.end_iso).getTime() - new Date(apiWaitLeg.start_iso).getTime()) /
+              60_000,
+          ),
+        )
+      : null;
   const transferPlan = buildTransferPlan(destination || destLabel, weather, minutesUntilDepart);
   const weatherLine = weather
     ? `오늘은 ${weather.label}이고, 기온 ${weather.tempC ?? '--'}°C · 습도 ${weather.humidity ?? '--'}% · 미세먼지 ${weather.pm25 ?? '--'}µg/m³예요.`
@@ -360,6 +399,28 @@ export function ActiveTripCard({
           </span>
         </p>
       )}
+
+      {noServiceReason && (
+        <div className="card-grad rounded-2xl p-5 shadow-sm">
+          <p className="text-sm text-gray-600 leading-snug">
+            {destination || '목적지'} · 버스 운행 종료
+          </p>
+          <div className="mt-3">
+            <p className="text-2xl font-extrabold text-gray-900 leading-tight">
+              탑승 가능한 버스가 없어요
+            </p>
+            <p className="mt-2 text-sm text-gray-700 leading-relaxed">
+              {noServiceReason} 첫차 시간 이후에 다시 경로를 확인해 주세요.
+            </p>
+          </div>
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            막차 이후에는 다음 날 첫차 기준 경로를 별도로 계산해야 해요.
+          </div>
+        </div>
+      )}
+
+      {!noServiceReason && (
+        <>
 
       {/* Main departure card */}
       <div className="card-grad rounded-2xl p-5 shadow-sm">
@@ -393,9 +454,9 @@ export function ActiveTripCard({
         <p className="text-sm text-gray-700 mt-2">
           {mode === 'depart' ? (
             <>
-              도보 <span className="font-bold text-gray-900">{MOCK_WALK_MIN}분</span> 후{' '}
-              <span className="font-bold text-gray-900">{MOCK_BUS}번</span>을 타면 총{' '}
-              <span className="text-emerald-700 font-bold">{MOCK_NOW_TOTAL_MIN}분</span>
+              도보 <span className="font-bold text-gray-900">{apiWalkMin ?? MOCK_WALK_MIN}분</span> 후{' '}
+              <span className="font-bold text-gray-900">{busNumber}번</span>을 타면 총{' '}
+              <span className="text-emerald-700 font-bold">{apiTotalMin ?? MOCK_NOW_TOTAL_MIN}분</span>
               만에 도착해요.
             </>
           ) : (
@@ -416,19 +477,21 @@ export function ActiveTripCard({
 
         <div className="flex items-start gap-3">
           <span className="bg-emerald-700 text-white font-extrabold text-sm rounded-lg px-3 py-1.5 tabular-nums shrink-0">
-            {MOCK_BUS}
+            {busNumber}
           </span>
           <div className="flex-1 min-w-0">
             <p className="text-sm text-gray-900 font-medium">
-              {MOCK_STOP} ·{' '}
+              {boardingStop} ·{' '}
               {mode === 'depart'
-                ? `${busBoardDate ? fmt(busBoardDate) : '--:--'} 탑승`
+                ? `${apiBusStartDate ? fmt(apiBusStartDate) : busBoardDate ? fmt(busBoardDate) : '--:--'} 탑승`
                 : `${stopArriveDate ? fmt(stopArriveDate) : '--:--'} 도착`}
             </p>
             <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
               <DirectionsWalk sx={{ fontSize: 14 }} />
               {mode === 'depart'
-                ? `도보 ${MOCK_WALK_MIN}분 · 대기 ${MOCK_NOW_WAIT_MIN}분 · 도착 예상 ${
+                ? `도보 ${apiWalkMin ?? MOCK_WALK_MIN}분 · 대기 ${
+                    apiWaitMin ?? MOCK_NOW_WAIT_MIN
+                  }분 · 도착 예상 ${
                     arrivalDate ? fmt(arrivalDate) : '--:--'
                   }`
                 : `도보 ${MOCK_WALK_MIN}분 · 도착 예상 ${
@@ -450,6 +513,12 @@ export function ActiveTripCard({
                 {MOCK_NEXT_BUS}번 {nextBusDate ? fmt(nextBusDate) : '--:--'}
               </span>
               으로 밀릴 수 있어요.
+              {missProbabilityPct !== null && (
+                <>
+                  {' '}
+                  놓칠 확률은 <span className="font-bold">{missProbabilityPct}%</span>예요.
+                </>
+              )}
             </>
           ) : (
             <>
@@ -504,30 +573,43 @@ export function ActiveTripCard({
         </div>
       )}
 
-      <div className="mt-3 rounded-2xl border border-emerald-100 bg-white px-4 py-3 shadow-sm">
-        <div className="flex items-center gap-2 text-sm font-bold text-gray-900">
-          <DirectionsWalk className="text-emerald-600" sx={{ fontSize: 18 }} />
-          속도
-        </div>
-        <p className="mt-2 text-sm leading-relaxed text-gray-700">{speedLine}</p>
-        <p className="mt-1 text-xs text-gray-500">
-          걷는 속도 변화가 있으면 다음 계산부터 바로 반영돼요.
+      {plan?.advice && (
+        <p className="mt-2 text-xs leading-relaxed text-gray-500 px-1">
+          {plan.advice}
+          {plan.dummy ? ' · 현재 API 응답은 dummy예요.' : ''}
         </p>
-      </div>
+      )}
+        </>
+      )}
 
-      {showInsights && transferPlan && (
-        <div className="mt-3 rounded-2xl border border-violet-100 bg-white px-4 py-3 shadow-sm">
-          <div className="flex items-center gap-2 text-sm font-bold text-gray-900">
-            <SwapHoriz className="text-violet-600" sx={{ fontSize: 18 }} />
-            환승 가능성
+      {!noServiceReason && (
+        <>
+          <div className="mt-3 rounded-2xl border border-emerald-100 bg-white px-4 py-3 shadow-sm">
+            <div className="flex items-center gap-2 text-sm font-bold text-gray-900">
+              <DirectionsWalk className="text-emerald-600" sx={{ fontSize: 18 }} />
+              속도
+            </div>
+            <p className="mt-2 text-sm leading-relaxed text-gray-700">{speedLine}</p>
+            <p className="mt-1 text-xs text-gray-500">
+              걷는 속도 변화가 있으면 다음 계산부터 바로 반영돼요.
+            </p>
           </div>
-          <p className="mt-2 text-sm leading-relaxed text-gray-700">
-            {transferPlan.transferStop}에서 <span className="font-bold text-gray-900">{transferPlan.busNumber}번</span>을
-            타는 흐름이에요. 이 버스를 탈 수 있을 확률은{' '}
-            <span className="font-bold text-violet-700">{transferChanceLabel}</span> 정도로 봐요.
-          </p>
-          <p className="mt-2 text-xs text-gray-500">{transferPlan.reason}</p>
-        </div>
+
+          {showInsights && transferPlan && (
+            <div className="mt-3 rounded-2xl border border-violet-100 bg-white px-4 py-3 shadow-sm">
+              <div className="flex items-center gap-2 text-sm font-bold text-gray-900">
+                <SwapHoriz className="text-violet-600" sx={{ fontSize: 18 }} />
+                환승 가능성
+              </div>
+              <p className="mt-2 text-sm leading-relaxed text-gray-700">
+                {transferPlan.transferStop}에서 <span className="font-bold text-gray-900">{transferPlan.busNumber}번</span>을
+                타는 흐름이에요. 이 버스를 탈 수 있을 확률은{' '}
+                <span className="font-bold text-violet-700">{transferChanceLabel}</span> 정도로 봐요.
+              </p>
+              <p className="mt-2 text-xs text-gray-500">{transferPlan.reason}</p>
+            </div>
+          )}
+        </>
       )}
 
       {onEnd && (
