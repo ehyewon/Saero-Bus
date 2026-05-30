@@ -706,6 +706,23 @@ export function HomePage({ onBack }: HomePageProps = {}) {
           </button>
         </div>
       </div>
+
+      {submitting && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-white/72 backdrop-blur-sm px-6"
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+        >
+          <div className="w-full max-w-[280px] rounded-3xl border border-emerald-100 bg-white shadow-xl px-6 py-7 text-center">
+            <div className="mx-auto mb-4 h-12 w-12 rounded-full border-4 border-emerald-100 border-t-emerald-700 animate-spin" />
+            <p className="text-lg font-extrabold text-gray-900">경로 찾는 중</p>
+            <p className="mt-2 text-sm text-gray-600 leading-relaxed">
+              가까운 정류장과 배차를 확인하고 있어요.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
