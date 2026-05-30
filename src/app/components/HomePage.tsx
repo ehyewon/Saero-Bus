@@ -30,6 +30,11 @@ type SearchField = 'origin' | 'destination';
 
 const pad = (n: number) => String(n).padStart(2, '0');
 const FALLBACK_ORIGIN: LatLng = { lat: 35.8242, lng: 127.1480 };
+const ARRIVE_WALK_MIN = 4;
+const ARRIVE_WAIT_MIN = 3;
+const ARRIVE_RIDE_MIN = 28;
+const ARRIVE_FINAL_WALK_MIN = 5;
+const ARRIVE_BUFFER_MIN = 6;
 
 const formatKoreanTime = (hhmm: string) => {
   const [h, m] = hhmm.split(':').map(Number);
@@ -41,6 +46,7 @@ const formatKoreanTime = (hhmm: string) => {
 
 export function HomePage({ onBack }: HomePageProps = {}) {
   const [origin, setOrigin] = useState('');
+  const [originCoord, setOriginCoord] = useState<LatLng | null>(null);
   const [destination, setDestination] = useState('');
   const [destinationCoord, setDestinationCoord] = useState<LatLng | null>(null);
   const [pickingField, setPickingField] = useState<SearchField | null>(null);
@@ -49,6 +55,8 @@ export function HomePage({ onBack }: HomePageProps = {}) {
   const [tripCreatedAt, setTripCreatedAt] = useState<number | undefined>(undefined);
   const [tripPlan, setTripPlan] = useState<PlanResponse | undefined>(undefined);
   const [noServiceReason, setNoServiceReason] = useState<string | undefined>(undefined);
+  const [nextFirstBusTime, setNextFirstBusTime] = useState<string | undefined>(undefined);
+  const [nextFirstBusLabel, setNextFirstBusLabel] = useState<string | undefined>(undefined);
   const [submitting, setSubmitting] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const [recents, setRecents] = useState<RecentPlace[]>([]);
@@ -65,6 +73,8 @@ export function HomePage({ onBack }: HomePageProps = {}) {
       setTripCreatedAt(trip.createdAt);
       setTripPlan(trip.plan);
       setNoServiceReason(trip.noServiceReason);
+      setNextFirstBusTime(trip.nextFirstBusTime);
+      setNextFirstBusLabel(trip.nextFirstBusLabel);
       setShowResults(true);
       return;
     }
@@ -106,18 +116,265 @@ export function HomePage({ onBack }: HomePageProps = {}) {
     )}:${pad(d.getMinutes())}:00+09:00`;
   };
 
-  const hasAnyRemainingBusToday = async () => {
+  const clockToMinutes = (value?: string | null): number | null => {
+    const raw = value?.replace(/\D/g, '').padStart(4, '0');
+    if (!raw) return null;
+    const h = Number(raw.slice(0, 2));
+    const m = Number(raw.slice(2, 4));
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+    return h * 60 + m;
+  };
+
+  const dateFromMinutesNearTarget = (targetDate: Date, totalMin: number) => {
+    const d = new Date(targetDate);
+    d.setHours(Math.floor(totalMin / 60), totalMin % 60, 0, 0);
+    if (d.getTime() - targetDate.getTime() > 12 * 60 * 60_000) d.setDate(d.getDate() - 1);
+    if (targetDate.getTime() - d.getTime() > 12 * 60 * 60_000) d.setDate(d.getDate() + 1);
+    return d;
+  };
+
+  const isoLocal = (d: Date) =>
+    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
+      d.getHours(),
+    )}:${pad(d.getMinutes())}:00+09:00`;
+
+  const buildArrivalPlan = async (
+    targetIso: string,
+    originPoint: LatLng,
+    destinationPoint: LatLng | null,
+    destinationName: string,
+  ): Promise<{ plan?: PlanResponse; noServiceReason?: string; nextFirstBusTime?: string; nextFirstBusLabel?: string }> => {
     const routes = await blogApi.listRoutes();
+    const targetDate = new Date(targetIso);
     const now = new Date();
     const nowMin = now.getHours() * 60 + now.getMinutes();
-    return routes.some((route) => {
-      const raw = route.last_time?.replace(/\D/g, '').padStart(4, '0');
-      if (!raw) return false;
-      const h = Number(raw.slice(0, 2));
-      const m = Number(raw.slice(2, 4));
-      if (!Number.isFinite(h) || !Number.isFinite(m)) return false;
-      return h * 60 + m >= nowMin;
-    });
+    let best:
+      | {
+          busNo: string;
+          stdid: number;
+          departMin: number;
+          firstStop: string;
+          lastStop: string;
+          boardIso?: string;
+          alightIso?: string;
+          finalArrivalIso?: string;
+        }
+      | undefined;
+    let firstBusMin: number | null = null;
+
+    const originStops = await blogApi.getNearbyStops(originPoint.lat, originPoint.lng, 900).catch(() => []);
+    const destinationStops = destinationPoint
+      ? await blogApi.getNearbyStops(destinationPoint.lat, destinationPoint.lng, 900).catch(() => [])
+      : [];
+    const originStopIds = new Set(originStops.map((stop) => stop.stop_id));
+    const destinationStopIds = new Set(destinationStops.map((stop) => stop.stop_id));
+    const originRouteNos = new Set(originStops.flatMap((stop) => stop.routes ?? []));
+    const destinationRouteNos = new Set(destinationStops.flatMap((stop) => stop.routes ?? []));
+    const sharedRouteNos = new Set(
+      [...originRouteNos].filter((routeNo) => destinationRouteNos.has(routeNo)),
+    );
+    const candidateRoutes =
+      sharedRouteNos.size > 0
+        ? routes.filter((route) => sharedRouteNos.has(route.brt_no))
+        : routes.slice(0, 80);
+
+    await Promise.all(
+      candidateRoutes.slice(0, 80).map(async (route) => {
+        let slots: string[] = [];
+        try {
+          slots = (await blogApi.getRouteDepartures(route.stdid)).departures;
+        } catch {
+          slots = [route.first_time, route.last_time].filter((v): v is string => Boolean(v));
+        }
+        const minutes = slots
+          .map(clockToMinutes)
+          .filter((value): value is number => value !== null);
+        let boardStopName = route.start_name || '승차 정류장';
+        let alightStopName = route.end_name || '하차정류장';
+        let routeStopPair: { boardOrd: number; alightOrd: number } | null = null;
+        if (originStopIds.size > 0 && destinationStopIds.size > 0) {
+          try {
+            const detail = await blogApi.getRoute(route.stdid);
+            const boardCandidates = detail.stops.filter((stop) => originStopIds.has(stop.stop_id));
+            const alightCandidates = detail.stops.filter((stop) => destinationStopIds.has(stop.stop_id));
+            for (const board of boardCandidates) {
+              const alight = alightCandidates.find((stop) => stop.stop_ord > board.stop_ord);
+              if (alight) {
+                routeStopPair = { boardOrd: board.stop_ord, alightOrd: alight.stop_ord };
+                boardStopName = board.stop_name;
+                alightStopName = alight.stop_name;
+                break;
+              }
+            }
+            if (!routeStopPair) return;
+          } catch {
+            return;
+          }
+        }
+
+        await Promise.all(minutes.map(async (departMin) => {
+          firstBusMin = firstBusMin === null ? departMin : Math.min(firstBusMin, departMin);
+          let boardDate = dateFromMinutesNearTarget(targetDate, departMin);
+          let alightDate = new Date(boardDate.getTime() + ARRIVE_RIDE_MIN * 60_000);
+          if (routeStopPair) {
+            try {
+              const eta = await blogApi.getDepartureEta(route.stdid, String(departMin).padStart(4, '0'));
+              const boardEta = eta.stops.find((stop) => stop.stop_ord === routeStopPair?.boardOrd);
+              const alightEta = eta.stops.find((stop) => stop.stop_ord === routeStopPair?.alightOrd);
+              const parsedBoard = boardEta ? new Date(boardEta.arrival_iso) : null;
+              const parsedAlight = alightEta ? new Date(alightEta.arrival_iso) : null;
+              if (parsedBoard && !Number.isNaN(parsedBoard.getTime())) boardDate = parsedBoard;
+              if (parsedAlight && !Number.isNaN(parsedAlight.getTime())) alightDate = parsedAlight;
+            } catch {
+              /* use rough segment timing */
+            }
+          }
+          const finalArrival = new Date(alightDate.getTime() + ARRIVE_FINAL_WALK_MIN * 60_000);
+          const boardMin = boardDate.getHours() * 60 + boardDate.getMinutes();
+          const canCatch = boardMin - ARRIVE_WALK_MIN >= nowMin;
+          const arrivesBeforeTarget = finalArrival.getTime() <= targetDate.getTime();
+          if (!canCatch || !arrivesBeforeTarget) return;
+          if (
+            !best ||
+            Math.abs(targetDate.getTime() - finalArrival.getTime()) <
+              Math.abs(targetDate.getTime() - new Date(best.finalArrivalIso ?? 0).getTime())
+          ) {
+            best = {
+              busNo: route.brt_no,
+              stdid: route.stdid,
+              departMin,
+              firstStop: boardStopName,
+              lastStop: alightStopName,
+              boardIso: isoLocal(boardDate),
+              alightIso: isoLocal(alightDate),
+              finalArrivalIso: isoLocal(finalArrival),
+            };
+          }
+        }));
+      }),
+    );
+
+    const nextFirstBusTime =
+      firstBusMin === null ? undefined : `${pad(Math.floor(firstBusMin / 60))}:${pad(firstBusMin % 60)}`;
+    const nextFirstBusLabel = firstBusMin === null ? undefined : firstBusMin >= nowMin ? '오늘' : '내일';
+    if (!best) {
+      return {
+        noServiceReason: '목표 도착 시간 전에 탈 수 있는 버스가 없어요.',
+        nextFirstBusTime,
+        nextFirstBusLabel,
+      };
+    }
+
+    const boardDate = best.boardIso ? new Date(best.boardIso) : dateFromMinutesNearTarget(targetDate, best.departMin);
+    const leaveDate = new Date(boardDate.getTime() - ARRIVE_WALK_MIN * 60_000);
+    const stopArriveDate = new Date(leaveDate.getTime() + ARRIVE_WALK_MIN * 60_000);
+    const busStartDate = boardDate;
+    const busEndDate = best.alightIso ? new Date(best.alightIso) : new Date(busStartDate.getTime() + ARRIVE_RIDE_MIN * 60_000);
+    const arrivalEta = best.finalArrivalIso ? new Date(best.finalArrivalIso) : new Date(busEndDate.getTime() + ARRIVE_FINAL_WALK_MIN * 60_000);
+    const slackMin = Math.max(0, Math.round((targetDate.getTime() - arrivalEta.getTime()) / 60_000));
+
+    return {
+      plan: {
+        recommended: {
+          leave_by: isoLocal(leaveDate),
+          arrival_eta: isoLocal(arrivalEta),
+          miss_probability: 0.08,
+          legs: [
+            {
+              mode: 'walk',
+              desc: '승차 정류장까지 도보',
+              from_name: origin.trim() || '출발지',
+              to_name: best.firstStop,
+              start_iso: isoLocal(leaveDate),
+              end_iso: isoLocal(stopArriveDate),
+            },
+            {
+              mode: 'wait',
+              desc: `${blogApi.hhmm(String(best.departMin).padStart(4, '0'))} 발차 대기`,
+              from_name: best.firstStop,
+              start_iso: isoLocal(stopArriveDate),
+              end_iso: isoLocal(busStartDate),
+            },
+            {
+              mode: 'bus',
+              desc: `${best.busNo}번 탑승`,
+              from_name: best.firstStop,
+              to_name: best.lastStop,
+              start_iso: isoLocal(busStartDate),
+              end_iso: isoLocal(busEndDate),
+              brt_no: best.busNo,
+              stdid: best.stdid,
+              depart: String(best.departMin).padStart(4, '0'),
+            },
+            {
+              mode: 'walk',
+              desc: '목적지까지 도보',
+              from_name: best.lastStop,
+              to_name: destinationName,
+              start_iso: isoLocal(busEndDate),
+              end_iso: isoLocal(arrivalEta),
+            },
+          ],
+        },
+        alternatives: [],
+        advice: `${fmt(leaveDate)}에 출발하면 ${best.busNo}번을 타고 목표보다 ${slackMin}분 여유 있게 도착해요.`,
+        dummy: true,
+        source: 'dummy',
+      },
+    };
+  };
+
+  const getServiceAvailability = async (busNo?: string | null, maxWaitMin = 60) => {
+    const routes = await blogApi.listRoutes();
+    const scopedRoutes = busNo ? routes.filter((route) => route.brt_no === busNo) : routes;
+    const now = new Date();
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    let hasRemaining = false;
+    let firstBusMin: number | null = null;
+
+    await Promise.all(
+      scopedRoutes.map(async (route) => {
+        let slots: string[] = [];
+        try {
+          const departures = await blogApi.getRouteDepartures(route.stdid);
+          slots = departures.departures;
+        } catch {
+          slots = [route.first_time, route.last_time].filter((v): v is string => Boolean(v));
+        }
+
+        const minutes = slots
+          .map(clockToMinutes)
+          .filter((value): value is number => value !== null);
+
+        minutes.forEach((total) => {
+          firstBusMin = firstBusMin === null ? total : Math.min(firstBusMin, total);
+          const waitMin = total - nowMin;
+          if (waitMin >= 0 && waitMin <= maxWaitMin) {
+            hasRemaining = true;
+          }
+        });
+
+        if (minutes.length === 0) {
+          const first = clockToMinutes(route.first_time);
+          const last = clockToMinutes(route.last_time);
+          if (first !== null) {
+            firstBusMin = firstBusMin === null ? first : Math.min(firstBusMin, first);
+          }
+          if (last !== null && last >= nowMin && last - nowMin <= maxWaitMin) {
+          hasRemaining = true;
+        }
+      }
+      }),
+    );
+    return {
+      hasRemaining,
+      nextFirstBusTime:
+        firstBusMin === null
+          ? undefined
+          : `${pad(Math.floor(firstBusMin / 60))}:${pad(firstBusMin % 60)}`,
+      nextFirstBusLabel:
+        firstBusMin === null ? undefined : firstBusMin >= nowMin ? '오늘' : '내일',
+    };
   };
 
   const handleSubmit = async () => {
@@ -130,25 +387,45 @@ export function HomePage({ onBack }: HomePageProps = {}) {
         : time;
     let plan: PlanResponse | undefined;
     let noService: string | undefined;
+    let nextFirst: string | undefined;
+    let nextFirstLabel: string | undefined;
     try {
-      if (mode === 'depart') {
-        const hasRemaining = await hasAnyRemainingBusToday();
-        if (!hasRemaining) {
-          noService = '오늘 운행 가능한 버스가 더 이상 없어요.';
-        }
-      }
-      const originCoord = await getCurrentCoord();
-      if (!noService) {
+      const currentCoord = await getCurrentCoord();
+      const planOriginCoord = originCoord ?? currentCoord;
+      const targetIso = targetIsoFor(arrivalTime);
+      if (mode === 'arrive') {
+        const arrivalPlan = await buildArrivalPlan(
+          targetIso,
+          planOriginCoord,
+          destinationCoord,
+          destination.trim(),
+        );
+        plan = arrivalPlan.plan;
+        noService = arrivalPlan.noServiceReason;
+        nextFirst = arrivalPlan.nextFirstBusTime;
+        nextFirstLabel = arrivalPlan.nextFirstBusLabel;
+      } else if (!noService) {
         plan = await blogApi.makePlan({
-          origin: originCoord,
+          origin: planOriginCoord,
           destination: destinationCoord,
           destination_query: destination.trim(),
-          target_arrival: targetIsoFor(arrivalTime),
+          target_arrival: targetIso,
           user_speed_mps: 1.3,
         });
-        if (!plan.recommended.legs.some((leg) => leg.mode === 'bus')) {
-          noService = '탑승 가능한 버스가 없어요.';
+      }
+      const plannedBusNo = plan?.recommended.legs.find((leg) => leg.mode === 'bus')?.brt_no;
+      if (mode === 'depart') {
+        const service = await getServiceAvailability(plannedBusNo, 60);
+        nextFirst = service.nextFirstBusTime;
+        nextFirstLabel = service.nextFirstBusLabel;
+        if (!service.hasRemaining) {
+          noService = plannedBusNo
+            ? `오늘 ${plannedBusNo}번은 더 이상 운행하지 않아요.`
+            : '오늘 운행 가능한 버스가 더 이상 없어요.';
         }
+      }
+      if (!noService && !plan?.recommended.legs.some((leg) => leg.mode === 'bus')) {
+        noService = '탑승 가능한 버스가 없어요.';
       }
     } catch {
       plan = undefined;
@@ -160,11 +437,22 @@ export function HomePage({ onBack }: HomePageProps = {}) {
     }
     pushRecentPlace({ name: destination, address: destination });
     setRecents(loadRecentPlaces());
-    saveActiveTrip({ origin: origin.trim(), destination, arrivalTime, mode, plan, noServiceReason: noService });
+    saveActiveTrip({
+      origin: origin.trim(),
+      destination,
+      arrivalTime,
+      mode,
+      plan,
+      noServiceReason: noService,
+      nextFirstBusTime: nextFirst,
+      nextFirstBusLabel: nextFirstLabel,
+    });
     setTime(arrivalTime);
     setTripCreatedAt(createdAt);
     setTripPlan(plan);
     setNoServiceReason(noService);
+    setNextFirstBusTime(nextFirst);
+    setNextFirstBusLabel(nextFirstLabel);
     setSubmitting(false);
     setShowResults(true);
   };
@@ -182,6 +470,11 @@ export function HomePage({ onBack }: HomePageProps = {}) {
   const pickPlace = (place: PlaceSearchResult) => {
     if (pickingField === 'origin') {
       setOrigin(place.name);
+      setOriginCoord(
+        typeof place.lat === 'number' && typeof place.lon === 'number'
+          ? { lat: place.lat, lng: place.lon }
+          : null,
+      );
       setPickingField(null);
       return;
     }
@@ -204,6 +497,7 @@ export function HomePage({ onBack }: HomePageProps = {}) {
     }
     if (field === 'origin') {
       setOrigin(value);
+      setOriginCoord(null);
       return;
     }
     setDestination(value);
@@ -232,6 +526,8 @@ export function HomePage({ onBack }: HomePageProps = {}) {
         createdAt={tripCreatedAt}
         plan={tripPlan}
         noServiceReason={noServiceReason}
+        nextFirstBusTime={nextFirstBusTime}
+        nextFirstBusLabel={nextFirstBusLabel}
         onBack={onBack ?? (() => setShowResults(false))}
         onClear={() => {
           clearActiveTrip();
@@ -410,6 +706,23 @@ export function HomePage({ onBack }: HomePageProps = {}) {
           </button>
         </div>
       </div>
+
+      {submitting && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-white/72 backdrop-blur-sm px-6"
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+        >
+          <div className="w-full max-w-[280px] rounded-3xl border border-emerald-100 bg-white shadow-xl px-6 py-7 text-center">
+            <div className="mx-auto mb-4 h-12 w-12 rounded-full border-4 border-emerald-100 border-t-emerald-700 animate-spin" />
+            <p className="text-lg font-extrabold text-gray-900">경로 찾는 중</p>
+            <p className="mt-2 text-sm text-gray-600 leading-relaxed">
+              가까운 정류장과 배차를 확인하고 있어요.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

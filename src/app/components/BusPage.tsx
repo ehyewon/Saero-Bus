@@ -521,6 +521,7 @@ function BusDetailView({ bus, isFavorite, onBack, onToggleFavorite }: BusDetailV
   const [routeDetail, setRouteDetail] = useState<RouteDetailResponse | null>(null);
   const [apiRunningBuses, setApiRunningBuses] = useState<RunningBus[] | null>(null);
   const [apiDepartures, setApiDepartures] = useState<Dispatch[] | null>(null);
+  const [apiFirstBusTime, setApiFirstBusTime] = useState<string | null>(null);
   const [apiArrivals, setApiArrivals] = useState<ArrivalAtStop[] | null>(null);
 
   useEffect(() => {
@@ -566,7 +567,12 @@ function BusDetailView({ bus, isFavorite, onBack, onToggleFavorite }: BusDetailV
             return { time: `${pad2(h)}:${pad2(m)}`, minutesUntil };
           })
           .sort((a, b) => a.minutesUntil - b.minutesUntil)
+          .filter((d) => d.minutesUntil < 24 * 60 - todayMin)
           .slice(0, 3);
+        const first = list.departures
+          .map((raw) => raw.replace(/\D/g, '').padStart(4, '0'))
+          .sort()[0];
+        setApiFirstBusTime(first ? `${first.slice(0, 2)}:${first.slice(2, 4)}` : null);
         setApiDepartures(next);
       })
       .catch(() => {
@@ -765,6 +771,11 @@ function BusDetailView({ bus, isFavorite, onBack, onToggleFavorite }: BusDetailV
                 ) : (
                   <div className="w-full rounded-xl bg-amber-50 text-amber-800 px-3 py-2 text-sm font-semibold">
                     오늘은 탑승 가능한 버스가 없어요
+                    {apiFirstBusTime ? (
+                      <span className="block text-xs font-medium mt-0.5">
+                        다음 첫차는 내일 {apiFirstBusTime} 출발이에요.
+                      </span>
+                    ) : null}
                   </div>
                 )}
               </div>

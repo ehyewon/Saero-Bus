@@ -38,6 +38,21 @@ export interface StopSummary {
   source?: ApiSource;
 }
 
+export interface StopArrival {
+  stop_ord: number;
+  stop_name: string;
+  arrival_iso: string;
+}
+
+export interface DepartureEta {
+  stdid: number;
+  brt_no?: string | null;
+  depart: string;
+  mode: ApiSource;
+  dummy?: boolean;
+  stops: StopArrival[];
+}
+
 export interface RouteDetailResponse {
   stdid: number;
   brt_no: string;
@@ -166,7 +181,17 @@ export const blogApi = {
   getRouteBuses: (stdid: number) => request<LiveBus[]>(`/v1/routes/${stdid}/buses`),
   searchStops: (q: string) =>
     request<StopSummary[]>(`/v1/stops/search?${new URLSearchParams({ q }).toString()}`),
+  getNearbyStops: (lat: number, lng: number, radiusM = 700) =>
+    request<StopSummary[]>(
+      `/v1/stops/nearby?${new URLSearchParams({
+        lat: String(lat),
+        lng: String(lng),
+        radius_m: String(radiusM),
+      }).toString()}`,
+    ),
   getStopArrivals: (stopId: number) => request<ArrivalBoard>(`/v1/stops/${stopId}/arrivals`),
+  getDepartureEta: (stdid: number, hhmm: string, mode: 'pre' | 'live' = 'pre') =>
+    request<DepartureEta>(`/v1/routes/${stdid}/departures/${hhmm}/eta?mode=${mode}`),
   getWeather: (lat: number, lng: number) => request<WeatherResponse>(`/v1/weather?lat=${lat}&lng=${lng}`),
   makePlan: (payload: PlanRequest) =>
     request<PlanResponse>('/v1/plan', {

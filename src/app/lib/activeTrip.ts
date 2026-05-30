@@ -10,6 +10,8 @@ export interface ActiveTrip {
   mode?: 'arrive' | 'depart';
   plan?: PlanResponse;
   noServiceReason?: string;
+  nextFirstBusTime?: string;
+  nextFirstBusLabel?: string;
   createdAt: number;
 }
 

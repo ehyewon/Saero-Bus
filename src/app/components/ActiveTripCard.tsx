@@ -27,6 +27,8 @@ interface ActiveTripCardProps {
   createdAt?: number;
   plan?: PlanResponse;
   noServiceReason?: string;
+  nextFirstBusTime?: string;
+  nextFirstBusLabel?: string;
   homeLabel?: string;
   destinationLabel?: string;
   onEnd?: () => void;
@@ -52,6 +54,12 @@ const parseIso = (value?: string | null): Date | null => {
   if (!value) return null;
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? null : d;
+};
+const durationMin = (start?: string | null, end?: string | null): number | null => {
+  const s = parseIso(start);
+  const e = parseIso(end);
+  if (!s || !e) return null;
+  return Math.max(0, Math.round((e.getTime() - s.getTime()) / 60_000));
 };
 const formatMinutesUntil = (minutes: number) => {
   if (minutes <= 0) return '지금';
@@ -213,6 +221,8 @@ export function ActiveTripCard({
   createdAt,
   plan,
   noServiceReason,
+  nextFirstBusTime,
+  nextFirstBusLabel,
   homeLabel = '집',
   destinationLabel,
   onEnd,
@@ -297,7 +307,9 @@ export function ActiveTripCard({
   );
   const recommended = plan?.recommended;
   const apiBusLeg = recommended?.legs.find((leg) => leg.mode === 'bus');
-  const apiFirstWalkLeg = recommended?.legs.find((leg) => leg.mode === 'walk');
+  const walkLegs = recommended?.legs.filter((leg) => leg.mode === 'walk') ?? [];
+  const apiFirstWalkLeg = walkLegs[0];
+  const apiLastWalkLeg = walkLegs[walkLegs.length - 1];
   const apiWaitLeg = recommended?.legs.find((leg) => leg.mode === 'wait');
   const apiLeaveByDate = parseIso(recommended?.leave_by);
   const apiArrivalDate = parseIso(recommended?.arrival_eta);
@@ -351,25 +363,15 @@ export function ActiveTripCard({
       ? Math.max(0, Math.round((apiArrivalDate.getTime() - apiLeaveByDate.getTime()) / 60_000))
       : null;
   const apiWalkMin =
-    apiFirstWalkLeg?.start_iso && apiFirstWalkLeg.end_iso
-      ? Math.max(
-          0,
-          Math.round(
-            (new Date(apiFirstWalkLeg.end_iso).getTime() -
-              new Date(apiFirstWalkLeg.start_iso).getTime()) /
-              60_000,
-          ),
-        )
-      : null;
+    durationMin(apiFirstWalkLeg?.start_iso, apiFirstWalkLeg?.end_iso);
+  const apiFinalWalkMin =
+    durationMin(apiLastWalkLeg?.start_iso, apiLastWalkLeg?.end_iso);
   const apiWaitMin =
-    apiWaitLeg?.start_iso && apiWaitLeg.end_iso
-      ? Math.max(
-          0,
-          Math.round(
-            (new Date(apiWaitLeg.end_iso).getTime() - new Date(apiWaitLeg.start_iso).getTime()) /
-              60_000,
-          ),
-        )
+    durationMin(apiWaitLeg?.start_iso, apiWaitLeg?.end_iso);
+  const targetArrivalDate = toToday(arrivalTime);
+  const arrivalSlackMin =
+    targetArrivalDate && arrivalDate
+      ? Math.round((targetArrivalDate.getTime() - arrivalDate.getTime()) / 60_000)
       : null;
   const transferPlan = buildTransferPlan(destination || destLabel, weather, minutesUntilDepart);
   const weatherLine = weather
@@ -414,7 +416,9 @@ export function ActiveTripCard({
             </p>
           </div>
           <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-            막차 이후에는 다음 날 첫차 기준 경로를 별도로 계산해야 해요.
+            {nextFirstBusTime
+              ? `다음 탑승 가능한 첫차는 ${nextFirstBusLabel ?? '내일'} ${nextFirstBusTime} 출발이에요.`
+              : '막차 이후에는 다음 날 첫차 기준 경로를 별도로 계산해야 해요.'}
           </div>
         </div>
       )}
@@ -500,6 +504,52 @@ export function ActiveTripCard({
             </p>
           </div>
         </div>
+
+        {recommended && (
+          <div className="mt-4 rounded-2xl bg-white/70 border border-emerald-100 p-3 space-y-3">
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <InfoCell
+                label="출발해야 하는 시간"
+                value={departDate ? fmt(departDate) : '--:--'}
+              />
+              <InfoCell
+                label="예상 도착"
+                value={arrivalDate ? fmt(arrivalDate) : '--:--'}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <InfoCell
+                label="승차 정류장"
+                value={boardingStop}
+              />
+              <InfoCell
+                label="하차 정류장"
+                value={arrivalStop}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <InfoCell
+                label="승차 전 도보"
+                value={`${apiWalkMin ?? MOCK_WALK_MIN}분`}
+              />
+              <InfoCell
+                label="하차 후 도보"
+                value={`${apiFinalWalkMin ?? MOCK_WALK_MIN}분`}
+              />
+            </div>
+            <div className="rounded-xl bg-emerald-50 px-3 py-2 text-xs text-emerald-900">
+              목표 시간보다{' '}
+              <span className="font-extrabold">
+                {arrivalSlackMin === null
+                  ? '여유 계산 중'
+                  : arrivalSlackMin >= 0
+                    ? `${arrivalSlackMin}분 여유`
+                    : `${Math.abs(arrivalSlackMin)}분 늦음`}
+              </span>
+              으로 도착할 예정이에요.
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Miss warning */}
@@ -623,6 +673,15 @@ export function ActiveTripCard({
         </button>
       )}
 
+    </div>
+  );
+}
+
+function InfoCell({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl bg-white px-3 py-2 border border-gray-100 min-w-0">
+      <p className="text-[10px] font-semibold text-gray-500 leading-none">{label}</p>
+      <p className="mt-1 text-sm font-extrabold text-gray-900 truncate">{value}</p>
     </div>
   );
 }

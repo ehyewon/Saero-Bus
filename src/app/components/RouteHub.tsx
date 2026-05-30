@@ -444,6 +444,8 @@ export function RouteHub() {
                 createdAt={upcoming.createdAt}
                 plan={upcoming.plan}
                 noServiceReason={upcoming.noServiceReason}
+                nextFirstBusTime={upcoming.nextFirstBusTime}
+                nextFirstBusLabel={upcoming.nextFirstBusLabel}
                 showInsights={false}
               />
             </div>
