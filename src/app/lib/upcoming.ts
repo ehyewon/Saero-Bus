@@ -20,6 +20,8 @@ export interface UpcomingTrip {
   createdAt?: number;
   plan?: PlanResponse;
   noServiceReason?: string;
+  nextFirstBusTime?: string;
+  nextFirstBusLabel?: string;
   source: 'search' | 'alarm';
 }
 
@@ -86,6 +88,8 @@ export function loadUpcomingTrip(windowHours = 2): UpcomingTrip | null {
       createdAt: trip.createdAt,
       plan: trip.plan,
       noServiceReason: trip.noServiceReason,
+      nextFirstBusTime: trip.nextFirstBusTime,
+      nextFirstBusLabel: trip.nextFirstBusLabel,
       source: 'search',
     };
   }

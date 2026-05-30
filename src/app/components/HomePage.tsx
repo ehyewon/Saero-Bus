@@ -49,6 +49,8 @@ export function HomePage({ onBack }: HomePageProps = {}) {
   const [tripCreatedAt, setTripCreatedAt] = useState<number | undefined>(undefined);
   const [tripPlan, setTripPlan] = useState<PlanResponse | undefined>(undefined);
   const [noServiceReason, setNoServiceReason] = useState<string | undefined>(undefined);
+  const [nextFirstBusTime, setNextFirstBusTime] = useState<string | undefined>(undefined);
+  const [nextFirstBusLabel, setNextFirstBusLabel] = useState<string | undefined>(undefined);
   const [submitting, setSubmitting] = useState(false);
   const [showResults, setShowResults] = useState(false);
   const [recents, setRecents] = useState<RecentPlace[]>([]);
@@ -65,6 +67,8 @@ export function HomePage({ onBack }: HomePageProps = {}) {
       setTripCreatedAt(trip.createdAt);
       setTripPlan(trip.plan);
       setNoServiceReason(trip.noServiceReason);
+      setNextFirstBusTime(trip.nextFirstBusTime);
+      setNextFirstBusLabel(trip.nextFirstBusLabel);
       setShowResults(true);
       return;
     }
@@ -106,18 +110,66 @@ export function HomePage({ onBack }: HomePageProps = {}) {
     )}:${pad(d.getMinutes())}:00+09:00`;
   };
 
-  const hasAnyRemainingBusToday = async () => {
+  const clockToMinutes = (value?: string | null): number | null => {
+    const raw = value?.replace(/\D/g, '').padStart(4, '0');
+    if (!raw) return null;
+    const h = Number(raw.slice(0, 2));
+    const m = Number(raw.slice(2, 4));
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+    return h * 60 + m;
+  };
+
+  const getServiceAvailability = async (busNo?: string | null, maxWaitMin = 60) => {
     const routes = await blogApi.listRoutes();
+    const scopedRoutes = busNo ? routes.filter((route) => route.brt_no === busNo) : routes;
     const now = new Date();
     const nowMin = now.getHours() * 60 + now.getMinutes();
-    return routes.some((route) => {
-      const raw = route.last_time?.replace(/\D/g, '').padStart(4, '0');
-      if (!raw) return false;
-      const h = Number(raw.slice(0, 2));
-      const m = Number(raw.slice(2, 4));
-      if (!Number.isFinite(h) || !Number.isFinite(m)) return false;
-      return h * 60 + m >= nowMin;
-    });
+    let hasRemaining = false;
+    let firstBusMin: number | null = null;
+
+    await Promise.all(
+      scopedRoutes.map(async (route) => {
+        let slots: string[] = [];
+        try {
+          const departures = await blogApi.getRouteDepartures(route.stdid);
+          slots = departures.departures;
+        } catch {
+          slots = [route.first_time, route.last_time].filter((v): v is string => Boolean(v));
+        }
+
+        const minutes = slots
+          .map(clockToMinutes)
+          .filter((value): value is number => value !== null);
+
+        minutes.forEach((total) => {
+          firstBusMin = firstBusMin === null ? total : Math.min(firstBusMin, total);
+          const waitMin = total - nowMin;
+          if (waitMin >= 0 && waitMin <= maxWaitMin) {
+            hasRemaining = true;
+          }
+        });
+
+        if (minutes.length === 0) {
+          const first = clockToMinutes(route.first_time);
+          const last = clockToMinutes(route.last_time);
+          if (first !== null) {
+            firstBusMin = firstBusMin === null ? first : Math.min(firstBusMin, first);
+          }
+          if (last !== null && last >= nowMin && last - nowMin <= maxWaitMin) {
+          hasRemaining = true;
+        }
+      }
+      }),
+    );
+    return {
+      hasRemaining,
+      nextFirstBusTime:
+        firstBusMin === null
+          ? undefined
+          : `${pad(Math.floor(firstBusMin / 60))}:${pad(firstBusMin % 60)}`,
+      nextFirstBusLabel:
+        firstBusMin === null ? undefined : firstBusMin >= nowMin ? '오늘' : '내일',
+    };
   };
 
   const handleSubmit = async () => {
@@ -130,13 +182,9 @@ export function HomePage({ onBack }: HomePageProps = {}) {
         : time;
     let plan: PlanResponse | undefined;
     let noService: string | undefined;
+    let nextFirst: string | undefined;
+    let nextFirstLabel: string | undefined;
     try {
-      if (mode === 'depart') {
-        const hasRemaining = await hasAnyRemainingBusToday();
-        if (!hasRemaining) {
-          noService = '오늘 운행 가능한 버스가 더 이상 없어요.';
-        }
-      }
       const originCoord = await getCurrentCoord();
       if (!noService) {
         plan = await blogApi.makePlan({
@@ -146,9 +194,28 @@ export function HomePage({ onBack }: HomePageProps = {}) {
           target_arrival: targetIsoFor(arrivalTime),
           user_speed_mps: 1.3,
         });
-        if (!plan.recommended.legs.some((leg) => leg.mode === 'bus')) {
-          noService = '탑승 가능한 버스가 없어요.';
+      }
+      const plannedBusNo = plan?.recommended.legs.find((leg) => leg.mode === 'bus')?.brt_no;
+      if (mode === 'arrive' && plan) {
+        const targetDate = new Date(targetIsoFor(arrivalTime));
+        const apiArrival = new Date(plan.recommended.arrival_eta);
+        const diffMin = Math.abs((apiArrival.getTime() - targetDate.getTime()) / 60_000);
+        if (!Number.isFinite(apiArrival.getTime()) || diffMin > 15) {
+          plan = undefined;
         }
+      }
+      if (mode === 'depart') {
+        const service = await getServiceAvailability(plannedBusNo, 60);
+        nextFirst = service.nextFirstBusTime;
+        nextFirstLabel = service.nextFirstBusLabel;
+        if (!service.hasRemaining) {
+          noService = plannedBusNo
+            ? `오늘 ${plannedBusNo}번은 더 이상 운행하지 않아요.`
+            : '오늘 운행 가능한 버스가 더 이상 없어요.';
+        }
+      }
+      if (!plan?.recommended.legs.some((leg) => leg.mode === 'bus')) {
+        noService = '탑승 가능한 버스가 없어요.';
       }
     } catch {
       plan = undefined;
@@ -160,11 +227,22 @@ export function HomePage({ onBack }: HomePageProps = {}) {
     }
     pushRecentPlace({ name: destination, address: destination });
     setRecents(loadRecentPlaces());
-    saveActiveTrip({ origin: origin.trim(), destination, arrivalTime, mode, plan, noServiceReason: noService });
+    saveActiveTrip({
+      origin: origin.trim(),
+      destination,
+      arrivalTime,
+      mode,
+      plan,
+      noServiceReason: noService,
+      nextFirstBusTime: nextFirst,
+      nextFirstBusLabel: nextFirstLabel,
+    });
     setTime(arrivalTime);
     setTripCreatedAt(createdAt);
     setTripPlan(plan);
     setNoServiceReason(noService);
+    setNextFirstBusTime(nextFirst);
+    setNextFirstBusLabel(nextFirstLabel);
     setSubmitting(false);
     setShowResults(true);
   };
@@ -232,6 +310,8 @@ export function HomePage({ onBack }: HomePageProps = {}) {
         createdAt={tripCreatedAt}
         plan={tripPlan}
         noServiceReason={noServiceReason}
+        nextFirstBusTime={nextFirstBusTime}
+        nextFirstBusLabel={nextFirstBusLabel}
         onBack={onBack ?? (() => setShowResults(false))}
         onClear={() => {
           clearActiveTrip();

@@ -15,6 +15,8 @@ interface DepartureResultProps {
   createdAt?: number;
   plan?: PlanResponse;
   noServiceReason?: string;
+  nextFirstBusTime?: string;
+  nextFirstBusLabel?: string;
   origin?: string;
   homeLabel?: string;
   destinationLabel?: string;
@@ -41,6 +43,8 @@ export function DepartureResult({
   createdAt,
   plan,
   noServiceReason,
+  nextFirstBusTime,
+  nextFirstBusLabel,
   origin = '덕진구 금암동',
   homeLabel = '집',
   destinationLabel,
@@ -90,6 +94,8 @@ export function DepartureResult({
             createdAt={createdAt}
             plan={plan}
             noServiceReason={noServiceReason}
+            nextFirstBusTime={nextFirstBusTime}
+            nextFirstBusLabel={nextFirstBusLabel}
             homeLabel={homeLabel}
             destinationLabel={destinationLabel}
             onEnd={onEnd}
