@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Warning,
   DirectionsWalk,
   Close,
   DeviceThermostat,
@@ -442,9 +441,6 @@ export function ActiveTripCard({
               </span>
               <span className="text-lg text-gray-700">도착</span>
             </div>
-            <p className="text-sm text-emerald-700 font-extrabold mt-2">
-              지금 출발하면 가장 빨라요
-            </p>
           </div>
         ) : (
           <div className="mt-3 flex items-baseline gap-2">
@@ -550,37 +546,6 @@ export function ActiveTripCard({
             </div>
           </div>
         )}
-      </div>
-
-      {/* Miss warning */}
-      <div className="mt-3 rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 flex items-center gap-2 text-sm">
-        <Warning className="text-rose-500 shrink-0" sx={{ fontSize: 18 }} />
-        <p className="text-gray-800">
-          {mode === 'depart' ? (
-            <>
-              이 경로가 현재 기준 가장 빠른 후보예요. 늦게 나가면 다음{' '}
-              <span className="font-bold">
-                {MOCK_NEXT_BUS}번 {nextBusDate ? fmt(nextBusDate) : '--:--'}
-              </span>
-              으로 밀릴 수 있어요.
-              {missProbabilityPct !== null && (
-                <>
-                  {' '}
-                  놓칠 확률은 <span className="font-bold">{missProbabilityPct}%</span>예요.
-                </>
-              )}
-            </>
-          ) : (
-            <>
-              놓치면 다음{' '}
-              <span className="font-bold">
-                {MOCK_NEXT_BUS}번 {nextBusDate ? fmt(nextBusDate) : '--:--'}
-              </span>{' '}
-              → 도착 {nextBusArrivalDate ? fmt(nextBusArrivalDate) : '--:--'}{' '}
-              <span className="text-rose-600 font-bold">지각 위험</span>
-            </>
-          )}
-        </p>
       </div>
 
       {showInsights && (

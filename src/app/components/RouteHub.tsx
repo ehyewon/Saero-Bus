@@ -288,7 +288,7 @@ export function RouteHub() {
   const frequentMeta = purpose ? PURPOSE_META[purpose] : PURPOSE_META.other;
   const [todayArrival, setTodayArrival] = useState<string | null>(() => loadTodayArrival());
   const recentPreview = recents.slice(0, 3);
-  const busFavoritePreview = busFavorites.slice(0, 3);
+  const busFavoritePreview: BusInfo[] = [];
 
   type Loc =
     | { status: 'pending' }
