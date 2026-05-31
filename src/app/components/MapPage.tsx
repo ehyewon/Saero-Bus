@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowBack, MyLocation, DirectionsBus } from '@mui/icons-material';
+import { ArrowBack, MyLocation, DirectionsBus, Refresh } from '@mui/icons-material';
 import { loadNaverMaps } from '../lib/naverMaps';
 import { blogApi, type StopSummary, type ArrivalBoard, type ArrivalItem } from '../lib/blogApi';
+import {
+  BusDetailView,
+  busTypeFromNo,
+  loadBusFavorites,
+  saveBusFavorites,
+  type BusInfo,
+} from './BusPage';
 
 const goHub = () =>
   window.dispatchEvent(new CustomEvent('switchTab', { detail: 0 }));
@@ -53,6 +60,11 @@ export function MapPage() {
   const [selectedStop, setSelectedStop] = useState<StopSummary | null>(null);
   const [arrivalBoard, setArrivalBoard] = useState<ArrivalBoard | null>(null);
   const [arrivalLoading, setArrivalLoading] = useState(false);
+  const [arrivalRefreshKey, setArrivalRefreshKey] = useState(0);
+  const [selectedBus, setSelectedBus] = useState<BusInfo | null>(null);
+  const [busRefreshKey, setBusRefreshKey] = useState(0);
+  const [busFavorites, setBusFavorites] = useState<BusInfo[]>(() => loadBusFavorites());
+  const [busRefreshSpinning, setBusRefreshSpinning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -184,7 +196,35 @@ export function MapPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedStop]);
+  }, [selectedStop, arrivalRefreshKey]);
+
+  const busFromArrival = (item: ArrivalItem): BusInfo => ({
+    stdid: item.stdid,
+    number: item.brt_no,
+    name: item.brt_no,
+    type: busTypeFromNo(item.brt_no),
+    firstBus: '--:--',
+    lastBus: '--:--',
+    interval: '-',
+    source: 'api',
+  });
+
+  const toggleBusFavorite = (bus: BusInfo) => {
+    setBusFavorites((prev) => {
+      const exists = prev.some((f) => f.number === bus.number);
+      const next = exists
+        ? prev.filter((f) => f.number !== bus.number)
+        : [...prev, bus];
+      saveBusFavorites(next);
+      return next;
+    });
+  };
+
+  const handleBusRefresh = () => {
+    setBusRefreshKey((k) => k + 1);
+    setBusRefreshSpinning(true);
+    window.setTimeout(() => setBusRefreshSpinning(false), 600);
+  };
 
   const handleCenterOnUser = () => {
     if (!mapRef.current || !userPos) return;
@@ -213,6 +253,29 @@ export function MapPage() {
       { enableHighAccuracy: true, timeout: 5000 },
     );
   };
+
+  if (selectedBus) {
+    const isFav = busFavorites.some((f) => f.number === selectedBus.number);
+    return (
+      <>
+        <BusDetailView
+          key={`${selectedBus.stdid ?? selectedBus.number}-${busRefreshKey}`}
+          bus={selectedBus}
+          isFavorite={isFav}
+          onBack={() => setSelectedBus(null)}
+          onToggleFavorite={() => toggleBusFavorite(selectedBus)}
+        />
+        <button
+          type="button"
+          onClick={handleBusRefresh}
+          className="fixed bottom-6 right-6 z-30 w-12 h-12 rounded-full bg-emerald-700 text-white shadow-lg flex items-center justify-center active:scale-95 transition"
+          aria-label="새로고침"
+        >
+          <Refresh sx={{ fontSize: 22 }} className={busRefreshSpinning ? 'animate-spin' : ''} />
+        </button>
+      </>
+    );
+  }
 
   return (
     <div className="h-screen w-full bg-[#EAF4F0]">
@@ -252,6 +315,8 @@ export function MapPage() {
             board={arrivalBoard}
             loading={arrivalLoading}
             onClose={() => setSelectedStop(null)}
+            onRefresh={() => setArrivalRefreshKey((k) => k + 1)}
+            onSelectBus={(item) => setSelectedBus(busFromArrival(item))}
           />
         )}
 
@@ -286,9 +351,11 @@ interface StopDetailSheetProps {
   board: ArrivalBoard | null;
   loading: boolean;
   onClose: () => void;
+  onRefresh: () => void;
+  onSelectBus: (item: ArrivalItem) => void;
 }
 
-function StopDetailSheet({ stop, board, loading, onClose }: StopDetailSheetProps) {
+function StopDetailSheet({ stop, board, loading, onClose, onRefresh, onSelectBus }: StopDetailSheetProps) {
   return (
     <div className="absolute left-0 right-0 bottom-0 z-20 bg-white rounded-t-2xl shadow-2xl max-h-[55%] flex flex-col">
       <div className="flex items-start justify-between px-5 pt-4 pb-3 border-b border-gray-100">
@@ -296,6 +363,14 @@ function StopDetailSheet({ stop, board, loading, onClose }: StopDetailSheetProps
           <h2 className="text-base font-extrabold text-gray-900 truncate">{stop.stop_name}</h2>
           <p className="text-[11px] text-gray-500 mt-0.5">정류장 ID · {stop.stop_id}</p>
         </div>
+        <button
+          type="button"
+          onClick={onRefresh}
+          className="w-8 h-8 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center shrink-0 mr-1"
+          aria-label="새로고침"
+        >
+          <Refresh sx={{ fontSize: 18 }} className={loading ? 'animate-spin' : ''} />
+        </button>
         <button
           type="button"
           onClick={onClose}
@@ -326,19 +401,25 @@ function StopDetailSheet({ stop, board, loading, onClose }: StopDetailSheetProps
         {!loading && board && board.arrivals.length > 0 && (
           <ul className="divide-y divide-gray-100">
             {board.arrivals.map((item, idx) => (
-              <li key={`${item.brt_no}-${item.stdid}-${idx}`} className="py-3 flex items-center gap-3">
-                <span className="inline-flex items-center justify-center min-w-12 px-2.5 h-8 rounded-full bg-emerald-700 text-white text-sm font-bold">
-                  {item.brt_no}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-emerald-800">{formatEta(item)}</p>
-                  {typeof item.stops_away === 'number' && typeof item.eta_sec === 'number' && (
-                    <p className="text-[11px] text-gray-500 mt-0.5">
-                      {item.stops_away}정거장 전
-                    </p>
-                  )}
-                </div>
-                <DirectionsBus sx={{ fontSize: 18 }} className="text-gray-300 shrink-0" />
+              <li key={`${item.brt_no}-${item.stdid}-${idx}`}>
+                <button
+                  type="button"
+                  onClick={() => onSelectBus(item)}
+                  className="w-full py-3 flex items-center gap-3 text-left active:bg-gray-50"
+                >
+                  <span className="inline-flex items-center justify-center min-w-12 px-2.5 h-8 rounded-full bg-emerald-700 text-white text-sm font-bold">
+                    {item.brt_no}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-emerald-800">{formatEta(item)}</p>
+                    {typeof item.stops_away === 'number' && typeof item.eta_sec === 'number' && (
+                      <p className="text-[11px] text-gray-500 mt-0.5">
+                        {item.stops_away}정거장 전
+                      </p>
+                    )}
+                  </div>
+                  <DirectionsBus sx={{ fontSize: 18 }} className="text-gray-300 shrink-0" />
+                </button>
               </li>
             ))}
           </ul>
