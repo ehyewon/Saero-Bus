@@ -118,7 +118,7 @@ function NaverMapPanel({
     if (!getNaverMapKey()) {
       setFailed(true);
       setMapLoadFailed(true);
-      setMapError('VITE_NAVER_MAP_CLIENT_ID가 설정되지 않았습니다.');
+      setMapError('네이버 지도 키가 설정되지 않았습니다.');
       return () => {
         disposed = true;
       };

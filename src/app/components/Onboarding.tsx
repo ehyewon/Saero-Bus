@@ -18,7 +18,8 @@ import {
   Star,
 } from '@mui/icons-material';
 import { WheelTimePicker } from './WheelTimePicker';
-import { ALL_BUSES, type BusInfo } from './BusPage';
+import { FALLBACK_BUSES, type BusInfo } from './BusPage';
+import { loadNaverMaps } from '../lib/naverMaps';
 
 const BUS_FAVORITES_KEY = 'saerobus.busFavorites.v1';
 
@@ -38,7 +39,7 @@ function pickRecommendedBus(homeAddress: string, frequentAddress: string): BusIn
   const seed = (homeAddress + frequentAddress)
     .split('')
     .reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 0);
-  return ALL_BUSES[seed % ALL_BUSES.length];
+  return FALLBACK_BUSES[seed % FALLBACK_BUSES.length];
 }
 
 /** localStorage keys — bump the suffix if the onboarding flow changes materially. */
@@ -193,33 +194,6 @@ declare global {
     };
     __saerobusNaverMapsPromise?: Promise<void>;
   }
-}
-
-const NAVER_MAPS_CLIENT_ID = import.meta.env.VITE_NAVER_MAPS_CLIENT_ID as
-  | string
-  | undefined;
-
-function loadNaverMaps(): Promise<void> {
-  if (window.naver?.maps?.Service) return Promise.resolve();
-  if (!NAVER_MAPS_CLIENT_ID) {
-    return Promise.reject(new Error('Missing Naver Maps client ID'));
-  }
-  if (window.__saerobusNaverMapsPromise) return window.__saerobusNaverMapsPromise;
-
-  window.__saerobusNaverMapsPromise = new Promise((resolve, reject) => {
-    const script = document.createElement('script');
-    const params = new URLSearchParams({
-      ncpKeyId: NAVER_MAPS_CLIENT_ID,
-      submodules: 'geocoder',
-    });
-    script.src = `https://oapi.map.naver.com/openapi/v3/maps.js?${params.toString()}`;
-    script.async = true;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error('Failed to load Naver Maps'));
-    document.head.appendChild(script);
-  });
-
-  return window.__saerobusNaverMapsPromise;
 }
 
 /**
