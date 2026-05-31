@@ -39,7 +39,7 @@ export function loadBusFavorites(): BusInfo[] {
   }
 }
 
-function saveBusFavorites(list: BusInfo[]) {
+export function saveBusFavorites(list: BusInfo[]) {
   try {
     localStorage.setItem(FAVORITES_KEY, JSON.stringify(list));
   } catch {
@@ -72,7 +72,7 @@ export const ALL_BUSES: BusInfo[] = [
   { number: '401', name: '선릉역 - 삼성역', type: 'branch', firstBus: '06:30', lastBus: '22:00', interval: '20-25분' },
 ];
 
-const busTypeFromNo = (number: string): BusInfo['type'] => {
+export const busTypeFromNo = (number: string): BusInfo['type'] => {
   if (number.length >= 4) return 'express';
   const n = Number(number);
   if (Number.isFinite(n) && n >= 500) return 'branch';
@@ -517,7 +517,7 @@ type LocationState =
   | { status: 'ready'; coord: { lat: number; lon: number } }
   | { status: 'denied' };
 
-function BusDetailView({ bus, isFavorite, onBack, onToggleFavorite }: BusDetailViewProps) {
+export function BusDetailView({ bus, isFavorite, onBack, onToggleFavorite }: BusDetailViewProps) {
   const [routeDetail, setRouteDetail] = useState<RouteDetailResponse | null>(null);
   const [apiRunningBuses, setApiRunningBuses] = useState<RunningBus[] | null>(null);
   const [apiDepartures, setApiDepartures] = useState<Dispatch[] | null>(null);
