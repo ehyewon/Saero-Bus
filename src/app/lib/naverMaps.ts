@@ -3,7 +3,7 @@ type NaverNamespace = any;
 declare global {
   interface Window {
     naver?: {
-      maps?: NaverMapsNamespace;
+      maps?: any;
     };
   }
 }
