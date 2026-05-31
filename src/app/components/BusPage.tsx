@@ -13,7 +13,14 @@ import {
   People,
   Refresh,
 } from '@mui/icons-material';
-import { blogApi, type RouteDetailResponse, type RouteSummary } from '../lib/blogApi';
+import {
+  blogApi,
+  type ArrivalBoard,
+  type ArrivalItem,
+  type RouteDetailResponse,
+  type RouteSummary,
+  type StopSummary,
+} from '../lib/blogApi';
 
 export interface BusInfo {
   stdid?: number;
@@ -262,12 +269,33 @@ const crowdColor: Record<Crowd, string> = {
   혼잡: 'text-rose-700 bg-rose-50',
 };
 
+function formatStopArrival(item: ArrivalItem) {
+  const minutes =
+    typeof item.eta_sec === 'number'
+      ? Math.max(1, Math.round(item.eta_sec / 60))
+      : Math.max(1, item.stops_away * 2);
+  const lead = `${minutes}분 후 도착`;
+  const trail =
+    item.stops_away > 0
+      ? `${item.stops_away}정거장 전`
+      : typeof item.eta_sec === 'number'
+        ? '곧 출발'
+        : '도착 예정';
+  return { lead, trail };
+}
+
 export function BusPage() {
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchMode, setSearchMode] = useState<'number' | 'route'>('number');
+  const [busQuery, setBusQuery] = useState('');
+  const [stopQuery, setStopQuery] = useState('');
+  const [searchMode, setSearchMode] = useState<'number' | 'stop'>('number');
   const [favorites, setFavorites] = useState<BusInfo[]>([]);
   const [apiBuses, setApiBuses] = useState<BusInfo[]>([]);
   const [selectedBus, setSelectedBus] = useState<BusInfo | null>(null);
+  const [stopResults, setStopResults] = useState<StopSummary[]>([]);
+  const [stopResultsLoading, setStopResultsLoading] = useState(false);
+  const [selectedStop, setSelectedStop] = useState<StopSummary | null>(null);
+  const [selectedStopBoard, setSelectedStopBoard] = useState<ArrivalBoard | null>(null);
+  const [selectedStopLoading, setSelectedStopLoading] = useState(false);
   const [, setTick] = useState(0);
   const [spinning, setSpinning] = useState(false);
 
@@ -328,17 +356,94 @@ export function BusPage() {
     return () => window.clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    if (searchMode !== 'stop') {
+      setStopResults([]);
+      setSelectedStop(null);
+      setSelectedStopBoard(null);
+      setStopResultsLoading(false);
+      setSelectedStopLoading(false);
+      return;
+    }
+
+    const q = stopQuery.trim();
+    if (!q) {
+      setStopResults([]);
+      setSelectedStop(null);
+      setSelectedStopBoard(null);
+      setStopResultsLoading(false);
+      return;
+    }
+
+    let alive = true;
+    setSelectedStop(null);
+    setSelectedStopBoard(null);
+    setStopResultsLoading(true);
+    const timer = window.setTimeout(() => {
+      blogApi
+        .searchStops(q)
+        .then((stops) => {
+          if (!alive) return;
+          setStopResults(stops.slice(0, 20));
+        })
+        .catch(() => {
+          if (!alive) return;
+          setStopResults([]);
+        })
+        .finally(() => {
+          if (alive) setStopResultsLoading(false);
+        });
+    }, 220);
+
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [searchMode, stopQuery]);
+
+  useEffect(() => {
+    if (searchMode !== 'stop' || !selectedStop) {
+      setSelectedStopBoard(null);
+      setSelectedStopLoading(false);
+      return;
+    }
+
+    let alive = true;
+    setSelectedStopLoading(true);
+    blogApi
+      .getStopArrivals(selectedStop.stop_id)
+      .then((board) => {
+        if (!alive) return;
+        setSelectedStopBoard(board);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setSelectedStopBoard(null);
+      })
+      .finally(() => {
+        if (alive) setSelectedStopLoading(false);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [searchMode, selectedStop]);
+
   const refresh = () => {
     setFavorites(loadBusFavorites());
     setTick((t) => t + 1);
+    if (searchMode === 'stop' && selectedStop) {
+      setSelectedStop((prev) => (prev ? { ...prev } : prev));
+    }
     setSpinning(true);
     window.setTimeout(() => setSpinning(false), 600);
   };
 
   const favoriteNumbers = new Set(favorites.map((f) => f.number));
   const catalog = apiBuses.length > 0 ? apiBuses : FALLBACK_BUSES;
-  const normalizedQuery = searchQuery.trim().toLowerCase();
-  const hasSearch = normalizedQuery.length > 0;
+  const normalizedBusQuery = busQuery.trim().toLowerCase();
+  const hasBusSearch = normalizedBusQuery.length > 0;
+  const hasStopSearch = stopQuery.trim().length > 0;
 
   const toggleFavorite = (bus: BusInfo) => {
     setFavorites((prev) => {
@@ -376,25 +481,44 @@ export function BusPage() {
     );
   }
 
+  if (searchMode === 'stop' && selectedStop) {
+    return (
+      <>
+        <StopDetailView
+          stop={selectedStop}
+          board={selectedStopBoard}
+          loading={selectedStopLoading}
+          onBack={() => setSelectedStop(null)}
+          onRefresh={() => setSelectedStop((prev) => (prev ? { ...prev } : prev))}
+          onSelectBus={(bus) => setSelectedBus(bus)}
+          busCatalog={catalog}
+          apiBuses={apiBuses}
+          fallbackBuses={FALLBACK_BUSES}
+        />
+        {fab}
+      </>
+    );
+  }
+
   const matches = (b: BusInfo) =>
     searchMode === 'number'
-      ? b.number.includes(normalizedQuery)
-      : b.name.toLowerCase().includes(normalizedQuery);
+      ? b.number.includes(normalizedBusQuery)
+      : b.name.toLowerCase().includes(normalizedBusQuery);
 
-  const handleSearchChange = (value: string) => {
+  const handleBusSearchChange = (value: string) => {
     if (searchMode === 'number') {
-      setSearchQuery(value.replace(/\D/g, ''));
+      setBusQuery(value.replace(/\D/g, ''));
       return;
     }
-    setSearchQuery(value);
+    setBusQuery(value);
   };
 
-  const visibleFavorites = hasSearch ? favorites.filter(matches) : favorites;
-  const visiblePopular = hasSearch
+  const visibleFavorites = hasBusSearch ? favorites.filter(matches) : favorites;
+  const visiblePopular = hasBusSearch
     ? catalog.filter(matches).slice(0, 20)
     : catalog.filter((b) => !favoriteNumbers.has(b.number)).slice(0, 5);
 
-  const noResults = hasSearch && visibleFavorites.length === 0 && visiblePopular.length === 0;
+  const noBusResults = hasBusSearch && visibleFavorites.length === 0 && visiblePopular.length === 0;
 
   return (
     <>
@@ -431,93 +555,152 @@ export function BusPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setSearchMode('route')}
+                onClick={() => setSearchMode('stop')}
                 className={`h-10 rounded-xl text-sm font-semibold transition ${
-                  searchMode === 'route'
+                  searchMode === 'stop'
                     ? 'bg-emerald-700 text-white shadow-sm'
                     : 'bg-white text-gray-600'
                 }`}
-                aria-pressed={searchMode === 'route'}
+                aria-pressed={searchMode === 'stop'}
               >
-                노선명 검색
+                정류장 이름 검색
               </button>
             </div>
             <div className="px-3 py-3 flex items-center gap-2 rounded-xl bg-white">
               <Search className="text-gray-400" />
-              <input
-                type="text"
-                inputMode={searchMode === 'number' ? 'numeric' : 'text'}
-                placeholder={searchMode === 'number' ? '버스 번호를 검색하세요' : '노선명을 검색하세요'}
-                value={searchQuery}
-                onChange={(e) => handleSearchChange(e.target.value)}
-                className="flex-1 outline-none bg-transparent text-sm min-w-0"
-              />
+              {searchMode === 'number' ? (
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="버스 번호를 검색하세요"
+                  value={busQuery}
+                  onChange={(e) => handleBusSearchChange(e.target.value)}
+                  className="flex-1 outline-none bg-transparent text-sm min-w-0"
+                />
+              ) : (
+                <input
+                  type="text"
+                  inputMode="text"
+                  placeholder="정류장 이름을 검색하세요"
+                  value={stopQuery}
+                  onChange={(e) => setStopQuery(e.target.value)}
+                  className="flex-1 outline-none bg-transparent text-sm min-w-0"
+                />
+              )}
             </div>
             <p className="px-1 pt-2 text-[11px] text-gray-500">
-              {searchMode === 'number' ? '버스 번호만 검색합니다.' : '노선명만 검색합니다.'}
+              {searchMode === 'number' ? '버스 번호만 검색합니다.' : '정류장 이름만 검색합니다.'}
             </p>
           </div>
         </div>
 
         <div className="p-4 space-y-5">
+          {searchMode === 'stop' ? (
+            <>
+              <section>
+                <h2 className="text-sm font-bold text-gray-600 mb-3">
+                  {hasStopSearch ? `정류장 검색 결과 (${stopResults.length})` : '정류장 검색'}
+                </h2>
+                {stopResultsLoading && (
+                  <div className="rounded-2xl bg-white/80 px-4 py-6 text-center text-sm text-gray-500">
+                    정류장을 찾는 중…
+                  </div>
+                )}
+                {!stopResultsLoading && hasStopSearch && stopResults.length === 0 && (
+                  <div className="flex flex-col items-center justify-center h-56 text-gray-500">
+                    <Place sx={{ fontSize: 56, opacity: 0.3 }} className="text-emerald-700" />
+                    <p className="mt-4 text-center">정류장 검색 결과가 없습니다</p>
+                  </div>
+                )}
+                {!stopResultsLoading && hasStopSearch && stopResults.length > 0 && (
+                  <div className="space-y-3">
+                    {stopResults.map((stop) => (
+                      <button
+                        key={stop.stop_id}
+                        type="button"
+                        onClick={() => setSelectedStop(stop)}
+                        className={`w-full text-left card-grad rounded-2xl p-4 shadow-sm border transition ${
+                          selectedStop?.stop_id === stop.stop_id
+                            ? 'border-emerald-500 ring-2 ring-emerald-100'
+                            : 'border-transparent'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="font-bold text-gray-900 truncate">{stop.stop_name}</div>
+                            <div className="text-xs text-gray-500 mt-0.5">정류장 ID · {stop.stop_id}</div>
+                          </div>
+                          <DirectionsBus sx={{ fontSize: 18 }} className="text-emerald-700 shrink-0" />
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {!stopResultsLoading && !hasStopSearch && (
+                  <p className="text-xs text-gray-500">
+                    예: 전북대학교.농협앞처럼 정류장 이름을 검색하세요.
+                  </p>
+                )}
+              </section>
+            </>
+          ) : (
+            <>
           {/* My buses — shown first if any */}
-          {visibleFavorites.length > 0 && (
-            <section>
-              <h2 className="text-sm font-bold text-gray-600 mb-3 flex items-center gap-1">
-                <Star sx={{ fontSize: 16 }} className="text-amber-500" />
-                내 버스
-              </h2>
-              <div className="space-y-3">
-                {visibleFavorites.map((bus) => (
+              {visibleFavorites.length > 0 && (
+                <section>
+                  <h2 className="text-sm font-bold text-gray-600 mb-3 flex items-center gap-1">
+                    <Star sx={{ fontSize: 16 }} className="text-amber-500" />
+                    내 버스
+                  </h2>
+                  <div className="space-y-3">
+                    {visibleFavorites.map((bus) => (
                   <BusCard
                     key={`fav-${bus.number}`}
                     bus={bus}
                     isFavorite
                     onSelect={() => setSelectedBus(bus)}
                     onToggleFavorite={() => toggleFavorite(bus)}
-                    searchMode={hasSearch ? searchMode : undefined}
                   />
                 ))}
-              </div>
-            </section>
-          )}
+                  </div>
+                </section>
+              )}
 
-          {/* Popular / search results */}
-          {visiblePopular.length > 0 && (
-            <section>
-              <h2 className="text-sm font-bold text-gray-600 mb-3">
-                {hasSearch
-                  ? `${searchMode === 'number' ? '버스 번호' : '노선명'} 검색 결과 (${visiblePopular.length})`
-                  : '인기 노선'}
-              </h2>
-              <div className="space-y-3">
-                {visiblePopular.map((bus) => (
-                  <BusCard
-                    key={bus.number}
-                    bus={bus}
-                    isFavorite={favoriteNumbers.has(bus.number)}
-                    onSelect={() => setSelectedBus(bus)}
-                    onToggleFavorite={() => toggleFavorite(bus)}
-                    searchMode={hasSearch ? searchMode : undefined}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
+              {/* Popular / search results */}
+              {visiblePopular.length > 0 && (
+                <section>
+                  <h2 className="text-sm font-bold text-gray-600 mb-3">
+                    {hasBusSearch
+                      ? `버스 번호 검색 결과 (${visiblePopular.length})`
+                      : '인기 노선'}
+                  </h2>
+                  <div className="space-y-3">
+                    {visiblePopular.map((bus) => (
+                      <BusCard
+                        key={bus.number}
+                        bus={bus}
+                        isFavorite={favoriteNumbers.has(bus.number)}
+                        onSelect={() => setSelectedBus(bus)}
+                        onToggleFavorite={() => toggleFavorite(bus)}
+                      />
+                    ))}
+                  </div>
+                </section>
+              )}
 
-          {/* Empty states */}
-          {!hasSearch && favorites.length === 0 && (
-            <p className="text-xs text-gray-500 text-center mt-2">
-              ★ 별을 눌러 자주 타는 버스를 등록해 보세요.
-            </p>
-          )}
-          {noResults && (
-            <div className="flex flex-col items-center justify-center h-72 text-gray-500">
-              <DirectionsBus sx={{ fontSize: 64, opacity: 0.3 }} className="text-emerald-700" />
-              <p className="mt-4 text-center">
-                {searchMode === 'number' ? '버스 번호 검색 결과가 없습니다' : '노선명 검색 결과가 없습니다'}
-              </p>
-            </div>
+              {/* Empty states */}
+              {!hasBusSearch && favorites.length === 0 && (
+                <p className="text-xs text-gray-500 text-center mt-2">
+                  ★ 별을 눌러 자주 타는 버스를 등록해 보세요.
+                </p>
+              )}
+              {noBusResults && (
+                <div className="flex flex-col items-center justify-center h-72 text-gray-500">
+                  <DirectionsBus sx={{ fontSize: 64, opacity: 0.3 }} className="text-emerald-700" />
+                  <p className="mt-4 text-center">버스 번호 검색 결과가 없습니다</p>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -532,10 +715,9 @@ interface BusCardProps {
   isFavorite: boolean;
   onSelect: () => void;
   onToggleFavorite: () => void;
-  searchMode?: 'number' | 'route';
 }
 
-function BusCard({ bus, isFavorite, onSelect, onToggleFavorite, searchMode }: BusCardProps) {
+function BusCard({ bus, isFavorite, onSelect, onToggleFavorite }: BusCardProps) {
   const stopStar = (e: MouseEvent) => {
     e.stopPropagation();
     onToggleFavorite();
@@ -551,24 +733,13 @@ function BusCard({ bus, isFavorite, onSelect, onToggleFavorite, searchMode }: Bu
         <div className="flex items-center justify-between mb-3 pr-8">
           <div className="flex items-center gap-3 min-w-0">
             <div
-              className={`${busBadgeBg[bus.type]} text-white rounded-lg ${
-                searchMode === 'route' ? 'px-3 py-1.5 min-w-[58px]' : 'px-4 py-2 min-w-[70px]'
-              } text-center shrink-0`}
+              className={`${busBadgeBg[bus.type]} text-white rounded-lg px-4 py-2 min-w-[70px] text-center shrink-0`}
             >
-              <div className={`font-bold ${searchMode === 'route' ? 'text-base' : 'text-lg'}`}>{bus.number}</div>
+              <div className="font-bold text-lg">{bus.number}</div>
             </div>
             <div className="min-w-0">
-              {searchMode === 'route' ? (
-                <>
-                  <div className="text-xs font-semibold text-emerald-700">노선명 검색</div>
-                  <div className="font-bold text-gray-900 truncate">{bus.name}</div>
-                </>
-              ) : (
-                <>
-                  <div className="font-bold text-gray-900 truncate">{bus.name}</div>
-                  <div className="text-xs text-gray-500">{busTypeName[bus.type]}버스</div>
-                </>
-              )}
+              <div className="font-bold text-gray-900 truncate">{bus.name}</div>
+              <div className="text-xs text-gray-500">{busTypeName[bus.type]}버스</div>
             </div>
           </div>
         </div>
@@ -601,6 +772,119 @@ function BusCard({ bus, isFavorite, onSelect, onToggleFavorite, searchMode }: Bu
           <StarBorder sx={{ fontSize: 24 }} className="text-gray-400" />
         )}
       </button>
+    </div>
+  );
+}
+
+interface StopDetailViewProps {
+  stop: StopSummary;
+  board: ArrivalBoard | null;
+  loading: boolean;
+  onBack: () => void;
+  onRefresh: () => void;
+  onSelectBus: (bus: BusInfo) => void;
+  busCatalog: BusInfo[];
+  apiBuses: BusInfo[];
+  fallbackBuses: BusInfo[];
+}
+
+function StopDetailView({
+  stop,
+  board,
+  loading,
+  onBack,
+  onRefresh,
+  onSelectBus,
+  busCatalog,
+  apiBuses,
+  fallbackBuses,
+}: StopDetailViewProps) {
+  const arrivals = board?.arrivals ?? [];
+  const stopName = board?.stop_name || stop.stop_name;
+
+  const findBus = (arrival: ArrivalItem) =>
+    apiBuses.find((bus) => bus.stdid === arrival.stdid && bus.number === arrival.brt_no) ??
+    busCatalog.find((bus) => bus.stdid === arrival.stdid && bus.number === arrival.brt_no) ??
+    busCatalog.find((bus) => bus.number === arrival.brt_no) ??
+    fallbackBuses.find((bus) => bus.number === arrival.brt_no);
+
+  return (
+    <div className="size-full bg-[#EAF4F0] overflow-auto">
+      <div className="max-w-md mx-auto min-h-full pb-6">
+        <div className="px-4 pt-2 pb-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              type="button"
+              onClick={onBack}
+              className="w-10 h-10 rounded-full bg-white shadow-sm flex items-center justify-center text-gray-800"
+              aria-label="뒤로"
+            >
+              <ArrowBack />
+            </button>
+            <div className="min-w-0">
+              <h1 className="text-xl font-extrabold text-gray-900 truncate">{stopName}</h1>
+              <p className="text-[11px] text-gray-500 mt-0.5">정류장 ID · {stop.stop_id}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onRefresh}
+            className="w-10 h-10 rounded-full bg-white shadow-sm flex items-center justify-center active:scale-95 transition"
+            aria-label="새로고침"
+          >
+            <Refresh sx={{ fontSize: 22 }} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
+
+        <div className="px-4">
+          <div className="card-grad rounded-2xl p-4 shadow-sm">
+            {loading && (
+              <p className="text-sm text-gray-500 py-6 text-center">도착 정보를 불러오는 중…</p>
+            )}
+
+            {!loading && !board && (
+              <p className="text-sm text-gray-500 py-6 text-center">
+                도착 정보를 불러올 수 없어요.
+              </p>
+            )}
+
+            {!loading && board && arrivals.length === 0 && (
+              <p className="text-sm text-gray-500 py-6 text-center">
+                현재 도착 예정 버스가 없어요.
+              </p>
+            )}
+
+            {!loading && board && arrivals.length > 0 && (
+              <div className="max-h-[72vh] overflow-y-auto">
+                <ul className="divide-y divide-gray-100">
+                  {arrivals.map((item, idx) => {
+                    const arrival = formatStopArrival(item);
+                    const matchedBus = findBus(item);
+                    return (
+                      <li key={`${item.brt_no}-${item.stdid}-${idx}`}>
+                        <button
+                          type="button"
+                          onClick={() => matchedBus && onSelectBus(matchedBus)}
+                          className="w-full py-3 flex items-center gap-3 text-left active:bg-gray-50"
+                        >
+                          <span className="inline-flex items-center justify-center min-w-12 px-2.5 h-8 rounded-full bg-emerald-700 text-white text-sm font-bold">
+                            {item.brt_no}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-emerald-800">{arrival.lead}</p>
+                            <p className="text-[11px] text-gray-500 mt-0.5">{arrival.trail}</p>
+                          </div>
+                          <DirectionsBus sx={{ fontSize: 18 }} className="text-gray-300 shrink-0" />
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
