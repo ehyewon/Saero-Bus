@@ -3,7 +3,7 @@ type NaverNamespace = any;
 declare global {
   interface Window {
     naver?: {
-      maps?: NaverMapsNamespace;
+      maps?: any;
     };
   }
 }
@@ -11,7 +11,7 @@ declare global {
 let loadingPromise: Promise<NaverNamespace> | null = null;
 
 export function getNaverMapKey() {
-  return import.meta.env.VITE_NAVER_MAP_CLIENT_ID || import.meta.env.VITE_NAVER_MAP_NCP_KEY_ID || '';
+  return import.meta.env.VITE_NAVER_MAP_CLIENT_ID || '';
 }
 
 export function loadNaverMaps(): Promise<NaverNamespace> {
