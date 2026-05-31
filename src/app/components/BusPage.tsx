@@ -906,69 +906,96 @@ export function BusPage() {
             </>
           ) : (
             <>
-          {/* My buses — shown first if any */}
-              {visibleFavorites.length > 0 && (
-                <section>
-                  <h2 className="text-sm font-bold text-gray-600 mb-3 flex items-center gap-1">
-                    <Star sx={{ fontSize: 16 }} className="text-amber-500" />
-                    내 버스
-                  </h2>
-                  <div className="space-y-3">
-                    {visibleFavorites.map((bus) => (
-                      <BusCard
-                        key={`fav-${bus.number}`}
-                        bus={bus}
-                        isFavorite
-                        onSelect={() => selectBus(bus)}
-                        onToggleFavorite={() => toggleFavorite(bus)}
-                      />
-                    ))}
-                  </div>
-                </section>
-              )}
-
               {hasBusSearch ? (
-                visibleBusResults.length > 0 && (
+                <>
+                  {visibleFavorites.length > 0 && (
+                    <section>
+                      <h2 className="text-sm font-bold text-gray-600 mb-3 flex items-center gap-1">
+                        <Star sx={{ fontSize: 16 }} className="text-amber-500" />
+                        내 버스
+                      </h2>
+                      <div className="space-y-3">
+                        {visibleFavorites.map((bus) => (
+                          <BusCard
+                            key={`fav-${bus.number}`}
+                            bus={bus}
+                            isFavorite
+                            onSelect={() => selectBus(bus)}
+                            onToggleFavorite={() => toggleFavorite(bus)}
+                          />
+                        ))}
+                      </div>
+                    </section>
+                  )}
+
+                  {visibleBusResults.length > 0 && (
+                    <section>
+                      <h2 className="text-sm font-bold text-gray-600 mb-3">
+                        버스 번호 검색 결과 ({visibleBusResults.length})
+                      </h2>
+                      <div className="space-y-3">
+                        {visibleBusResults.map((bus) => (
+                          <BusCard
+                            key={bus.number}
+                            bus={bus}
+                            isFavorite={favoriteNumbers.has(bus.number)}
+                            onSelect={() => selectBus(bus)}
+                            onToggleFavorite={() => toggleFavorite(bus)}
+                          />
+                        ))}
+                      </div>
+                    </section>
+                  )}
+                </>
+              ) : (
+                <>
+                  <section>
+                    <h2 className="text-sm font-bold text-gray-600 mb-3 flex items-center gap-1">
+                      <Star sx={{ fontSize: 16 }} className="text-amber-500" />
+                      내 버스
+                    </h2>
+                    {favorites.length > 0 ? (
+                      <div className="space-y-3">
+                        {favorites.map((bus) => (
+                          <BusCard
+                            key={`fav-${bus.number}`}
+                            bus={bus}
+                            isFavorite
+                            onSelect={() => selectBus(bus)}
+                            onToggleFavorite={() => toggleFavorite(bus)}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-500">
+                        아직 즐겨찾기한 버스가 없어요.
+                      </p>
+                    )}
+                  </section>
+
                   <section>
                     <h2 className="text-sm font-bold text-gray-600 mb-3">
-                      버스 번호 검색 결과 ({visibleBusResults.length})
+                      최근 검색 버스
                     </h2>
-                    <div className="space-y-3">
-                      {visibleBusResults.map((bus) => (
-                        <BusCard
-                          key={bus.number}
-                          bus={bus}
-                          isFavorite={favoriteNumbers.has(bus.number)}
-                          onSelect={() => selectBus(bus)}
-                          onToggleFavorite={() => toggleFavorite(bus)}
-                        />
-                      ))}
-                    </div>
+                    {recentBuses.length > 0 ? (
+                      <div className="space-y-3">
+                        {recentBuses.map((bus) => (
+                          <BusCard
+                            key={`recent-${bus.number}`}
+                            bus={bus}
+                            isFavorite={favoriteNumbers.has(bus.number)}
+                            onSelect={() => selectBus(bus)}
+                            onToggleFavorite={() => toggleFavorite(bus)}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-500">
+                        아직 최근 검색한 버스가 없어요.
+                      </p>
+                    )}
                   </section>
-                )
-              ) : (
-                <section>
-                  <h2 className="text-sm font-bold text-gray-600 mb-3">
-                    최근 검색 버스
-                  </h2>
-                  {recentBuses.length > 0 ? (
-                    <div className="space-y-3">
-                      {recentBuses.map((bus) => (
-                        <BusCard
-                          key={`recent-${bus.number}`}
-                          bus={bus}
-                          isFavorite={favoriteNumbers.has(bus.number)}
-                          onSelect={() => selectBus(bus)}
-                          onToggleFavorite={() => toggleFavorite(bus)}
-                        />
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-gray-500">
-                      아직 최근 검색한 버스가 없어요.
-                    </p>
-                  )}
-                </section>
+                </>
               )}
 
               {/* Empty states */}
