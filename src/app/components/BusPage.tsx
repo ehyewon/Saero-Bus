@@ -13,7 +13,15 @@ import {
   People,
   Refresh,
 } from '@mui/icons-material';
-import { blogApi, type RouteDetailResponse, type RouteSummary } from '../lib/blogApi';
+import {
+  blogApi,
+  type ArrivalBoard,
+  type ArrivalItem,
+  type LiveBus,
+  type RouteDetailResponse,
+  type RouteSummary,
+  type StopSummary,
+} from '../lib/blogApi';
 
 export interface BusInfo {
   stdid?: number;
@@ -27,6 +35,9 @@ export interface BusInfo {
 }
 
 const FAVORITES_KEY = 'saerobus.busFavorites.v1';
+const STOP_FAVORITES_KEY = 'saerobus.stopFavorites.v1';
+const RECENT_BUSES_KEY = 'saerobus.recentBuses.v1';
+const RECENT_STOPS_KEY = 'saerobus.recentStops.v1';
 
 export function loadBusFavorites(): BusInfo[] {
   try {
@@ -47,6 +58,85 @@ export function saveBusFavorites(list: BusInfo[]) {
   }
 }
 
+interface RecentStop {
+  stop_id: number;
+  stop_name: string;
+}
+
+interface FavoriteStop extends RecentStop {}
+
+function loadRecentBuses(): BusInfo[] {
+  try {
+    const raw = localStorage.getItem(RECENT_BUSES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as BusInfo[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentBuses(list: BusInfo[]) {
+  try {
+    localStorage.setItem(RECENT_BUSES_KEY, JSON.stringify(list.slice(0, 8)));
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadRecentStops(): RecentStop[] {
+  try {
+    const raw = localStorage.getItem(RECENT_STOPS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as RecentStop[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentStops(list: RecentStop[]) {
+  try {
+    localStorage.setItem(RECENT_STOPS_KEY, JSON.stringify(list.slice(0, 8)));
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadFavoriteStops(): FavoriteStop[] {
+  try {
+    const raw = localStorage.getItem(STOP_FAVORITES_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as FavoriteStop[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveFavoriteStops(list: FavoriteStop[]) {
+  try {
+    localStorage.setItem(STOP_FAVORITES_KEY, JSON.stringify(list.slice(0, 12)));
+  } catch {
+    /* ignore */
+  }
+}
+
+function pushRecentBus(bus: BusInfo) {
+  const next = [bus, ...loadRecentBuses().filter((item) => item.number !== bus.number)].slice(0, 8);
+  saveRecentBuses(next);
+}
+
+function pushRecentStop(stop: RecentStop) {
+  const next = [stop, ...loadRecentStops().filter((item) => item.stop_id !== stop.stop_id)].slice(0, 8);
+  saveRecentStops(next);
+}
+
+function pushFavoriteStop(stop: FavoriteStop) {
+  const next = [stop, ...loadFavoriteStops().filter((item) => item.stop_id !== stop.stop_id)].slice(0, 12);
+  saveFavoriteStops(next);
+}
+
 const goHub = () =>
   window.dispatchEvent(new CustomEvent('switchTab', { detail: 0 }));
 
@@ -64,12 +154,12 @@ const busTypeName: Record<BusInfo['type'], string> = {
   local: '마을',
 };
 
-export const ALL_BUSES: BusInfo[] = [
-  { number: '140', name: '강남역 - 서울역', type: 'trunk',  firstBus: '05:30', lastBus: '23:00', interval: '10-15분' },
-  { number: '146', name: '강남역 - 양재역', type: 'branch', firstBus: '06:00', lastBus: '22:30', interval: '15-20분' },
-  { number: '301', name: '수서역 - 강남역', type: 'trunk',  firstBus: '05:00', lastBus: '23:30', interval: '8-12분' },
-  { number: '360', name: '강남역 - 잠실역', type: 'trunk',  firstBus: '05:15', lastBus: '23:45', interval: '12-18분' },
-  { number: '401', name: '선릉역 - 삼성역', type: 'branch', firstBus: '06:30', lastBus: '22:00', interval: '20-25분' },
+export const FALLBACK_BUSES: BusInfo[] = [
+  { number: '101', name: '전북대종점 - 이마트', type: 'trunk', firstBus: '06:00', lastBus: '22:10', interval: '10-15분' },
+  { number: '501', name: '평화동종점 - 봉동회차지', type: 'trunk', firstBus: '05:57', lastBus: '22:30', interval: '10-15분' },
+  { number: '554', name: '고속버스터미널입구 - 둔산코아루2차아파트', type: 'branch', firstBus: '05:55', lastBus: '22:25', interval: '15-20분' },
+  { number: '3001', name: '송천동종점 - 평화동종점', type: 'trunk', firstBus: '06:07', lastBus: '22:30', interval: '8-12분' },
+  { number: '354', name: '충경로객사 - 우석대종점', type: 'branch', firstBus: '06:00', lastBus: '22:00', interval: '20-25분' },
 ];
 
 export const busTypeFromNo = (number: string): BusInfo['type'] => {
@@ -80,14 +170,42 @@ export const busTypeFromNo = (number: string): BusInfo['type'] => {
   return 'trunk';
 };
 
-const routeToBusInfo = (route: RouteSummary): BusInfo => ({
+function normalizeDeparture(raw: string): number | null {
+  const digits = raw.replace(/\D/g, '').padStart(4, '0');
+  const h = Number(digits.slice(0, 2));
+  const m = Number(digits.slice(2, 4));
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  return h * 60 + m;
+}
+
+function formatApiInterval(departures: string[]): string {
+  const minutes = departures
+    .map(normalizeDeparture)
+    .filter((value): value is number => value !== null)
+    .sort((a, b) => a - b);
+
+  if (minutes.length < 2) return '간격 정보 없음';
+
+  const gaps: number[] = [];
+  for (let i = 1; i < minutes.length; i += 1) {
+    gaps.push(minutes[i] - minutes[i - 1]);
+  }
+
+  const minGap = Math.min(...gaps);
+  const maxGap = Math.max(...gaps);
+  if (minGap === maxGap) return `${minGap}분`;
+  if (maxGap - minGap <= 2) return `약 ${Math.round(gaps.reduce((a, b) => a + b, 0) / gaps.length)}분`;
+  return `${minGap}~${maxGap}분`;
+}
+
+const routeToBusInfo = (route: RouteSummary, interval: string): BusInfo => ({
   stdid: route.stdid,
   number: route.brt_no,
   name: `${route.start_name || '기점'} - ${route.end_name || '종점'}`,
   type: busTypeFromNo(route.brt_no),
   firstBus: blogApi.hhmm(route.first_time) || '--:--',
   lastBus: blogApi.hhmm(route.last_time) || '--:--',
-  interval: 'API',
+  interval,
   source: 'api',
 });
 
@@ -96,6 +214,9 @@ const STOP_POOL = [
   '시립병원', '근린공원', '문화회관 앞', '체육관 사거리', '백화점',
   '버스 터미널', '기차역 광장', '고등학교 앞', '도서관', '우체국 사거리',
 ];
+
+const stopRouteDetailCache = new Map<number, RouteDetailResponse>();
+const stopLiveBusCache = new Map<number, LiveBus[]>();
 
 export interface Stop {
   stopId?: number;
@@ -234,32 +355,106 @@ const crowdColor: Record<Crowd, string> = {
   혼잡: 'text-rose-700 bg-rose-50',
 };
 
+function formatStopArrival(item: ArrivalItem) {
+  const minutes =
+    typeof item.eta_sec === 'number'
+      ? Math.max(1, Math.round(item.eta_sec / 60))
+      : Math.max(1, item.stops_away * 2);
+  const lead = `${minutes}분 후 도착`;
+  const trail =
+    item.stops_away > 0
+      ? `${item.stops_away}정거장 전`
+      : typeof item.eta_sec === 'number'
+        ? '곧 출발'
+        : '도착 예정';
+  return { lead, trail };
+}
+
+function getStopProgressLabel(
+  arrival: ArrivalItem,
+  targetStopId: number,
+  stops: RouteDetailResponse['stops'],
+  liveBus?: LiveBus | null,
+) {
+  if (!stops.length) return '';
+
+  if (liveBus?.stop_ord && liveBus.stop_ord > 0) {
+    const currentIdx = Math.max(0, Math.min(stops.length - 1, liveBus.stop_ord - 1));
+    const current = stops[currentIdx]?.stop_name;
+    const next = stops[Math.min(currentIdx + 1, stops.length - 1)]?.stop_name;
+    if (current && next) return `${current} → ${next}`;
+    if (current) return `${current} → 이동 중`;
+  }
+
+  const targetIdx = stops.findIndex((stop) => stop.stop_id === targetStopId);
+  if (targetIdx < 0) return '';
+
+  if (arrival.stops_away > 0) {
+    const passedIdx = Math.max(0, targetIdx - arrival.stops_away);
+    const nextIdx = Math.min(stops.length - 1, passedIdx + 1);
+    const current = stops[passedIdx]?.stop_name;
+    const next = stops[nextIdx]?.stop_name;
+    if (current && next) return `${current} → ${next}`;
+    if (current) return `${current} → 이동 중`;
+  }
+
+  const target = stops[targetIdx]?.stop_name;
+  return target ? `${target} 도착 직전` : '';
+}
+
 export function BusPage() {
-  const [searchQuery, setSearchQuery] = useState('');
+  const [busQuery, setBusQuery] = useState('');
+  const [stopQuery, setStopQuery] = useState('');
+  const [searchMode, setSearchMode] = useState<'number' | 'stop'>('number');
   const [favorites, setFavorites] = useState<BusInfo[]>([]);
   const [apiBuses, setApiBuses] = useState<BusInfo[]>([]);
   const [selectedBus, setSelectedBus] = useState<BusInfo | null>(null);
+  const [favoriteStops, setFavoriteStops] = useState<FavoriteStop[]>([]);
+  const [recentBuses, setRecentBuses] = useState<BusInfo[]>([]);
+  const [recentStops, setRecentStops] = useState<RecentStop[]>([]);
+  const [stopResults, setStopResults] = useState<StopSummary[]>([]);
+  const [stopResultsLoading, setStopResultsLoading] = useState(false);
+  const [selectedStop, setSelectedStop] = useState<StopSummary | null>(null);
+  const [selectedStopBoard, setSelectedStopBoard] = useState<ArrivalBoard | null>(null);
+  const [selectedStopLoading, setSelectedStopLoading] = useState(false);
   const [, setTick] = useState(0);
   const [spinning, setSpinning] = useState(false);
 
   useEffect(() => {
     let alive = true;
     const stored = loadBusFavorites();
+    const storedFavoriteStops = loadFavoriteStops();
+    const storedRecentBuses = loadRecentBuses();
+    const storedRecentStops = loadRecentStops();
     setFavorites(stored);
+    setFavoriteStops(storedFavoriteStops);
+    setRecentBuses(storedRecentBuses);
+    setRecentStops(storedRecentStops);
     blogApi
       .listRoutes()
-      .then((routes) => {
+      .then(async (routes) => {
         if (!alive) return;
         const seen = new Set<string>();
-        const buses = routes
-          .map(routeToBusInfo)
+        const buses = await Promise.all(
+          routes.map(async (route) => {
+            let interval = '간격 정보 없음';
+            try {
+              const departures = await blogApi.getRouteDepartures(route.stdid);
+              interval = formatApiInterval(departures.departures);
+            } catch {
+              interval = '간격 정보 없음';
+            }
+            return routeToBusInfo(route, interval);
+          }),
+        );
+        const unique = buses
           .filter((bus) => {
             const key = `${bus.number}-${bus.stdid}`;
             if (seen.has(key)) return false;
             seen.add(key);
             return true;
           });
-        setApiBuses(buses);
+        setApiBuses(unique);
       })
       .catch(() => {
         if (alive) setApiBuses([]);
@@ -271,7 +466,7 @@ export function BusPage() {
         const found =
           stored.find((b) => b.number === pending) ??
           apiBuses.find((b) => b.number === pending) ??
-          ALL_BUSES.find((b) => b.number === pending);
+          FALLBACK_BUSES.find((b) => b.number === pending);
         if (found) setSelectedBus(found);
       }
     } catch {
@@ -288,15 +483,97 @@ export function BusPage() {
     return () => window.clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    if (searchMode !== 'stop') {
+      setStopResults([]);
+      setSelectedStop(null);
+      setSelectedStopBoard(null);
+      setStopResultsLoading(false);
+      setSelectedStopLoading(false);
+      return;
+    }
+
+    const q = stopQuery.trim();
+    if (!q) {
+      setStopResults([]);
+      setSelectedStop(null);
+      setSelectedStopBoard(null);
+      setStopResultsLoading(false);
+      return;
+    }
+
+    let alive = true;
+    setSelectedStop(null);
+    setSelectedStopBoard(null);
+    setStopResultsLoading(true);
+    const timer = window.setTimeout(() => {
+      blogApi
+        .searchStops(q)
+        .then((stops) => {
+          if (!alive) return;
+          setStopResults(stops.slice(0, 20));
+        })
+        .catch(() => {
+          if (!alive) return;
+          setStopResults([]);
+        })
+        .finally(() => {
+          if (alive) setStopResultsLoading(false);
+        });
+    }, 220);
+
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [searchMode, stopQuery]);
+
+  useEffect(() => {
+    if (searchMode !== 'stop' || !selectedStop) {
+      setSelectedStopBoard(null);
+      setSelectedStopLoading(false);
+      return;
+    }
+
+    let alive = true;
+    setSelectedStopLoading(true);
+    blogApi
+      .getStopArrivals(selectedStop.stop_id)
+      .then((board) => {
+        if (!alive) return;
+        setSelectedStopBoard(board);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setSelectedStopBoard(null);
+      })
+      .finally(() => {
+        if (alive) setSelectedStopLoading(false);
+      });
+
+    return () => {
+      alive = false;
+    };
+  }, [searchMode, selectedStop]);
+
   const refresh = () => {
     setFavorites(loadBusFavorites());
+    setFavoriteStops(loadFavoriteStops());
+    setRecentBuses(loadRecentBuses());
+    setRecentStops(loadRecentStops());
     setTick((t) => t + 1);
+    if (searchMode === 'stop' && selectedStop) {
+      setSelectedStop((prev) => (prev ? { ...prev } : prev));
+    }
     setSpinning(true);
     window.setTimeout(() => setSpinning(false), 600);
   };
 
   const favoriteNumbers = new Set(favorites.map((f) => f.number));
-  const catalog = apiBuses.length > 0 ? apiBuses : ALL_BUSES;
+  const catalog = apiBuses.length > 0 ? apiBuses : FALLBACK_BUSES;
+  const normalizedBusQuery = busQuery.trim().toLowerCase();
+  const hasBusSearch = normalizedBusQuery.length > 0;
+  const hasStopSearch = stopQuery.trim().length > 0;
 
   const toggleFavorite = (bus: BusInfo) => {
     setFavorites((prev) => {
@@ -307,6 +584,30 @@ export function BusPage() {
       saveBusFavorites(next);
       return next;
     });
+  };
+
+  const toggleStopFavorite = (stop: RecentStop) => {
+    setFavoriteStops((prev) => {
+      const exists = prev.some((item) => item.stop_id === stop.stop_id);
+      const next = exists
+        ? prev.filter((item) => item.stop_id !== stop.stop_id)
+        : [...prev, stop];
+      saveFavoriteStops(next);
+      return next;
+    });
+  };
+
+  const selectBus = (bus: BusInfo) => {
+    pushRecentBus(bus);
+    setRecentBuses(loadRecentBuses());
+    setSelectedBus(bus);
+  };
+
+  const selectStop = (stop: StopSummary) => {
+    const recentStop = { stop_id: stop.stop_id, stop_name: stop.stop_name };
+    pushRecentStop(recentStop);
+    setRecentStops(loadRecentStops());
+    setSelectedStop(stop);
   };
 
   const fab = (
@@ -334,17 +635,46 @@ export function BusPage() {
     );
   }
 
+  if (searchMode === 'stop' && selectedStop) {
+    return (
+      <>
+        <StopDetailView
+          stop={selectedStop}
+          board={selectedStopBoard}
+          loading={selectedStopLoading}
+          isFavorite={favoriteStops.some((item) => item.stop_id === selectedStop.stop_id)}
+          onBack={() => setSelectedStop(null)}
+          onRefresh={() => setSelectedStop((prev) => (prev ? { ...prev } : prev))}
+          onToggleFavorite={() =>
+            toggleStopFavorite({ stop_id: selectedStop.stop_id, stop_name: selectedStop.stop_name })
+          }
+          onSelectBus={selectBus}
+          busCatalog={catalog}
+          apiBuses={apiBuses}
+          fallbackBuses={FALLBACK_BUSES}
+        />
+        {fab}
+      </>
+    );
+  }
+
   const matches = (b: BusInfo) =>
-    b.number.includes(searchQuery) ||
-    b.name.toLowerCase().includes(searchQuery.toLowerCase());
+    searchMode === 'number'
+      ? b.number.includes(normalizedBusQuery)
+      : b.name.toLowerCase().includes(normalizedBusQuery);
 
-  const visibleFavorites = searchQuery ? favorites.filter(matches) : favorites;
-  const visiblePopular = searchQuery
-    ? catalog.filter(matches).slice(0, 20)
-    : catalog.filter((b) => !favoriteNumbers.has(b.number)).slice(0, 5);
+  const handleBusSearchChange = (value: string) => {
+    if (searchMode === 'number') {
+      setBusQuery(value.replace(/\D/g, ''));
+      return;
+    }
+    setBusQuery(value);
+  };
 
-  const noResults =
-    searchQuery && visibleFavorites.length === 0 && visiblePopular.length === 0;
+  const visibleFavorites = hasBusSearch ? favorites.filter(matches) : favorites;
+  const visibleBusResults = hasBusSearch ? catalog.filter(matches).slice(0, 20) : [];
+
+  const noBusResults = hasBusSearch && visibleFavorites.length === 0 && visibleBusResults.length === 0;
 
   return (
     <>
@@ -365,71 +695,291 @@ export function BusPage() {
 
         {/* Search */}
         <div className="px-4">
-          <div className="card-grad rounded-full px-4 py-3 flex items-center gap-2 shadow-sm">
-            <Search className="text-gray-400" />
-            <input
-              type="text"
-              placeholder="버스 번호나 노선명을 검색하세요"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="flex-1 outline-none bg-transparent text-sm min-w-0"
-            />
+          <div className="card-grad rounded-2xl p-2 shadow-sm">
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <button
+                type="button"
+                onClick={() => setSearchMode('number')}
+                className={`h-10 rounded-xl text-sm font-semibold transition ${
+                  searchMode === 'number'
+                    ? 'bg-emerald-700 text-white shadow-sm'
+                    : 'bg-white text-gray-600'
+                }`}
+                aria-pressed={searchMode === 'number'}
+              >
+                버스 번호 검색
+              </button>
+              <button
+                type="button"
+                onClick={() => setSearchMode('stop')}
+                className={`h-10 rounded-xl text-sm font-semibold transition ${
+                  searchMode === 'stop'
+                    ? 'bg-emerald-700 text-white shadow-sm'
+                    : 'bg-white text-gray-600'
+                }`}
+                aria-pressed={searchMode === 'stop'}
+              >
+                정류장 이름 검색
+              </button>
+            </div>
+            <div className="px-3 py-3 flex items-center gap-2 rounded-xl bg-white">
+              <Search className="text-gray-400" />
+              {searchMode === 'number' ? (
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="버스 번호를 검색하세요"
+                  value={busQuery}
+                  onChange={(e) => handleBusSearchChange(e.target.value)}
+                  className="flex-1 outline-none bg-transparent text-sm min-w-0"
+                />
+              ) : (
+                <input
+                  type="text"
+                  inputMode="text"
+                  placeholder="정류장 이름을 검색하세요"
+                  value={stopQuery}
+                  onChange={(e) => setStopQuery(e.target.value)}
+                  className="flex-1 outline-none bg-transparent text-sm min-w-0"
+                />
+              )}
+            </div>
           </div>
         </div>
 
         <div className="p-4 space-y-5">
+          {searchMode === 'stop' ? (
+            <>
+              <section>
+                <h2 className="text-sm font-bold text-gray-600 mb-3 flex items-center gap-1">
+                  {hasStopSearch ? (
+                    `정류장 검색 결과 (${stopResults.length})`
+                  ) : (
+                    <>
+                      <Star sx={{ fontSize: 16 }} className="text-amber-500" />
+                      <span>내 정류장</span>
+                    </>
+                  )}
+                </h2>
+                {stopResultsLoading && (
+                  <div className="rounded-2xl bg-white/80 px-4 py-6 text-center text-sm text-gray-500">
+                    정류장을 찾는 중…
+                  </div>
+                )}
+                {!stopResultsLoading && hasStopSearch && stopResults.length === 0 && (
+                  <div className="flex flex-col items-center justify-center h-56 text-gray-500">
+                    <Place sx={{ fontSize: 56, opacity: 0.3 }} className="text-emerald-700" />
+                    <p className="mt-4 text-center">정류장 검색 결과가 없습니다</p>
+                  </div>
+                )}
+                {!stopResultsLoading && hasStopSearch && stopResults.length > 0 && (
+                  <div className="space-y-3">
+                    {stopResults.map((stop) => {
+                      const stopFav = favoriteStops.some((item) => item.stop_id === stop.stop_id);
+                      return (
+                        <div
+                          key={stop.stop_id}
+                          className={`card-grad rounded-2xl shadow-sm relative border transition ${
+                            selectedStop?.stop_id === stop.stop_id
+                              ? 'border-emerald-500 ring-2 ring-emerald-100'
+                              : 'border-transparent'
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() => selectStop(stop)}
+                            className="w-full p-4 pr-14 text-left active:scale-[0.99] transition"
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="font-bold text-gray-900 truncate">{stop.stop_name}</div>
+                                <div className="text-xs text-gray-500 mt-0.5">정류장 ID · {stop.stop_id}</div>
+                              </div>
+                              <DirectionsBus sx={{ fontSize: 18 }} className="text-emerald-700 shrink-0" />
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleStopFavorite({ stop_id: stop.stop_id, stop_name: stop.stop_name });
+                            }}
+                            className="absolute top-3 right-3 w-9 h-9 rounded-full flex items-center justify-center active:scale-95 transition"
+                            aria-label={stopFav ? '즐겨찾기 해제' : '즐겨찾기 등록'}
+                            aria-pressed={stopFav}
+                          >
+                            {stopFav ? (
+                              <Star sx={{ fontSize: 24 }} className="text-amber-500" />
+                            ) : (
+                              <StarBorder sx={{ fontSize: 24 }} className="text-gray-400" />
+                            )}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {!stopResultsLoading && !hasStopSearch && (
+                  <div className="space-y-3">
+                    {favoriteStops.length > 0 ? (
+                      favoriteStops.map((stop) => (
+                        <div key={`fav-${stop.stop_id}`} className="card-grad rounded-2xl shadow-sm relative">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              selectStop({ stop_id: stop.stop_id, stop_name: stop.stop_name, lat: 0, lng: 0 })
+                            }
+                            className="w-full p-4 pr-14 text-left active:scale-[0.99] transition"
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="font-bold text-gray-900 truncate">{stop.stop_name}</div>
+                                <div className="text-xs text-gray-500 mt-0.5">정류장 ID · {stop.stop_id}</div>
+                              </div>
+                              <DirectionsBus sx={{ fontSize: 18 }} className="text-emerald-700 shrink-0" />
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => toggleStopFavorite(stop)}
+                            className="absolute top-3 right-3 w-9 h-9 rounded-full flex items-center justify-center active:scale-95 transition"
+                            aria-label="즐겨찾기 해제"
+                            aria-pressed
+                          >
+                            <Star sx={{ fontSize: 24 }} className="text-amber-500" />
+                          </button>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-xs text-gray-500">
+                        아직 즐겨찾기한 정류장이 없어요.
+                      </p>
+                    )}
+
+                    <h3 className="text-sm font-bold text-gray-600 pt-1">
+                      최근 검색 정류장
+                    </h3>
+                    {recentStops.length > 0 ? (
+                      recentStops.map((stop) => {
+                        const isFav = favoriteStops.some((item) => item.stop_id === stop.stop_id);
+                        return (
+                          <div key={`recent-${stop.stop_id}`} className="card-grad rounded-2xl shadow-sm relative">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                selectStop({ stop_id: stop.stop_id, stop_name: stop.stop_name, lat: 0, lng: 0 })
+                              }
+                              className="w-full p-4 pr-14 text-left active:scale-[0.99] transition"
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="font-bold text-gray-900 truncate">{stop.stop_name}</div>
+                                  <div className="text-xs text-gray-500 mt-0.5">정류장 ID · {stop.stop_id}</div>
+                                </div>
+                                <DirectionsBus sx={{ fontSize: 18 }} className="text-emerald-700 shrink-0" />
+                              </div>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => toggleStopFavorite(stop)}
+                              className="absolute top-3 right-3 w-9 h-9 rounded-full flex items-center justify-center active:scale-95 transition"
+                              aria-label={isFav ? '즐겨찾기 해제' : '즐겨찾기 등록'}
+                              aria-pressed={isFav}
+                            >
+                              {isFav ? (
+                                <Star sx={{ fontSize: 24 }} className="text-amber-500" />
+                              ) : (
+                                <StarBorder sx={{ fontSize: 24 }} className="text-gray-400" />
+                              )}
+                            </button>
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <p className="text-xs text-gray-500">
+                        아직 최근 검색한 정류장이 없어요.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </section>
+            </>
+          ) : (
+            <>
           {/* My buses — shown first if any */}
-          {visibleFavorites.length > 0 && (
-            <section>
-              <h2 className="text-sm font-bold text-gray-600 mb-3 flex items-center gap-1">
-                <Star sx={{ fontSize: 16 }} className="text-amber-500" />
-                내 버스
-              </h2>
-              <div className="space-y-3">
-                {visibleFavorites.map((bus) => (
-                  <BusCard
-                    key={`fav-${bus.number}`}
-                    bus={bus}
-                    isFavorite
-                    onSelect={() => setSelectedBus(bus)}
-                    onToggleFavorite={() => toggleFavorite(bus)}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
+              {visibleFavorites.length > 0 && (
+                <section>
+                  <h2 className="text-sm font-bold text-gray-600 mb-3 flex items-center gap-1">
+                    <Star sx={{ fontSize: 16 }} className="text-amber-500" />
+                    내 버스
+                  </h2>
+                  <div className="space-y-3">
+                    {visibleFavorites.map((bus) => (
+                      <BusCard
+                        key={`fav-${bus.number}`}
+                        bus={bus}
+                        isFavorite
+                        onSelect={() => selectBus(bus)}
+                        onToggleFavorite={() => toggleFavorite(bus)}
+                      />
+                    ))}
+                  </div>
+                </section>
+              )}
 
-          {/* Popular / search results */}
-          {visiblePopular.length > 0 && (
-            <section>
-              <h2 className="text-sm font-bold text-gray-600 mb-3">
-                {searchQuery ? `검색 결과 (${visiblePopular.length})` : '인기 노선'}
-              </h2>
-              <div className="space-y-3">
-                {visiblePopular.map((bus) => (
-                  <BusCard
-                    key={bus.number}
-                    bus={bus}
-                    isFavorite={favoriteNumbers.has(bus.number)}
-                    onSelect={() => setSelectedBus(bus)}
-                    onToggleFavorite={() => toggleFavorite(bus)}
-                  />
-                ))}
-              </div>
-            </section>
-          )}
+              {hasBusSearch ? (
+                visibleBusResults.length > 0 && (
+                  <section>
+                    <h2 className="text-sm font-bold text-gray-600 mb-3">
+                      버스 번호 검색 결과 ({visibleBusResults.length})
+                    </h2>
+                    <div className="space-y-3">
+                      {visibleBusResults.map((bus) => (
+                        <BusCard
+                          key={bus.number}
+                          bus={bus}
+                          isFavorite={favoriteNumbers.has(bus.number)}
+                          onSelect={() => selectBus(bus)}
+                          onToggleFavorite={() => toggleFavorite(bus)}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                )
+              ) : (
+                <section>
+                  <h2 className="text-sm font-bold text-gray-600 mb-3">
+                    최근 검색 버스
+                  </h2>
+                  {recentBuses.length > 0 ? (
+                    <div className="space-y-3">
+                      {recentBuses.map((bus) => (
+                        <BusCard
+                          key={`recent-${bus.number}`}
+                          bus={bus}
+                          isFavorite={favoriteNumbers.has(bus.number)}
+                          onSelect={() => selectBus(bus)}
+                          onToggleFavorite={() => toggleFavorite(bus)}
+                        />
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-500">
+                      아직 최근 검색한 버스가 없어요.
+                    </p>
+                  )}
+                </section>
+              )}
 
-          {/* Empty states */}
-          {!searchQuery && favorites.length === 0 && (
-            <p className="text-xs text-gray-500 text-center mt-2">
-              ★ 별을 눌러 자주 타는 버스를 등록해 보세요.
-            </p>
-          )}
-          {noResults && (
-            <div className="flex flex-col items-center justify-center h-72 text-gray-500">
-              <DirectionsBus sx={{ fontSize: 64, opacity: 0.3 }} className="text-emerald-700" />
-              <p className="mt-4 text-center">검색 결과가 없습니다</p>
-            </div>
+              {/* Empty states */}
+              {!hasBusSearch && favorites.length === 0 && null}
+              {noBusResults && (
+                <div className="flex flex-col items-center justify-center h-72 text-gray-500">
+                  <DirectionsBus sx={{ fontSize: 64, opacity: 0.3 }} className="text-emerald-700" />
+                  <p className="mt-4 text-center">버스 번호 검색 결과가 없습니다</p>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -501,6 +1051,199 @@ function BusCard({ bus, isFavorite, onSelect, onToggleFavorite }: BusCardProps) 
           <StarBorder sx={{ fontSize: 24 }} className="text-gray-400" />
         )}
       </button>
+    </div>
+  );
+}
+
+interface StopDetailViewProps {
+  stop: StopSummary;
+  board: ArrivalBoard | null;
+  loading: boolean;
+  isFavorite: boolean;
+  onBack: () => void;
+  onRefresh: () => void;
+  onToggleFavorite: () => void;
+  onSelectBus: (bus: BusInfo) => void;
+  busCatalog: BusInfo[];
+  apiBuses: BusInfo[];
+  fallbackBuses: BusInfo[];
+}
+
+function StopDetailView({
+  stop,
+  board,
+  loading,
+  isFavorite,
+  onBack,
+  onRefresh,
+  onToggleFavorite,
+  onSelectBus,
+  busCatalog,
+  apiBuses,
+  fallbackBuses,
+}: StopDetailViewProps) {
+  const arrivals = board?.arrivals ?? [];
+  const stopName = board?.stop_name || stop.stop_name;
+  const [routeDetails, setRouteDetails] = useState<Record<number, RouteDetailResponse>>({});
+  const [liveBuses, setLiveBuses] = useState<Record<number, LiveBus[]>>({});
+
+  useEffect(() => {
+    if (!board?.arrivals.length) {
+      setRouteDetails({});
+      setLiveBuses({});
+      return;
+    }
+
+    const uniqueStdids = Array.from(new Set(board.arrivals.map((item) => item.stdid)));
+    let alive = true;
+
+    Promise.all(
+      uniqueStdids.map(async (stdid) => {
+        const cachedDetail = stopRouteDetailCache.get(stdid) ?? null;
+        const cachedBuses = stopLiveBusCache.get(stdid) ?? null;
+        if (cachedDetail || cachedBuses) {
+          return { stdid, detail: cachedDetail, buses: cachedBuses ?? [] };
+        }
+        const [detail, buses] = await Promise.all([
+          blogApi.getRoute(stdid).catch(() => null),
+          blogApi.getRouteBuses(stdid).catch(() => []),
+        ]);
+        if (detail) stopRouteDetailCache.set(stdid, detail);
+        stopLiveBusCache.set(stdid, buses);
+        return { stdid, detail, buses };
+      }),
+    ).then((results) => {
+      if (!alive) return;
+      const nextDetails: Record<number, RouteDetailResponse> = {};
+      const nextBuses: Record<number, LiveBus[]> = {};
+      results.forEach(({ stdid, detail, buses }) => {
+        if (detail) nextDetails[stdid] = detail;
+        nextBuses[stdid] = buses;
+      });
+      setRouteDetails(nextDetails);
+      setLiveBuses(nextBuses);
+    });
+
+    return () => {
+      alive = false;
+    };
+  }, [board?.arrivals]);
+
+  const findBus = (arrival: ArrivalItem) =>
+    apiBuses.find((bus) => bus.stdid === arrival.stdid && bus.number === arrival.brt_no) ??
+    busCatalog.find((bus) => bus.stdid === arrival.stdid && bus.number === arrival.brt_no) ??
+    busCatalog.find((bus) => bus.number === arrival.brt_no) ??
+    fallbackBuses.find((bus) => bus.number === arrival.brt_no);
+
+  return (
+    <div className="size-full bg-[#EAF4F0] overflow-auto">
+      <div className="max-w-md mx-auto min-h-full pb-6">
+        <div className="px-4 pt-2 pb-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              type="button"
+              onClick={onBack}
+              className="w-10 h-10 rounded-full bg-white shadow-sm flex items-center justify-center text-gray-800"
+              aria-label="뒤로"
+            >
+              <ArrowBack />
+            </button>
+            <div className="min-w-0">
+              <h1 className="text-xl font-extrabold text-gray-900 truncate">{stopName}</h1>
+              <p className="text-[11px] text-gray-500 mt-0.5">정류장 ID · {stop.stop_id}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onToggleFavorite}
+            className="w-10 h-10 rounded-full bg-white shadow-sm flex items-center justify-center active:scale-95 transition"
+            aria-label={isFavorite ? '즐겨찾기 해제' : '즐겨찾기 등록'}
+            aria-pressed={isFavorite}
+          >
+            {isFavorite ? (
+              <Star sx={{ fontSize: 22 }} className="text-amber-500" />
+            ) : (
+              <StarBorder sx={{ fontSize: 22 }} className="text-gray-400" />
+            )}
+          </button>
+        </div>
+
+        <div className="px-4">
+          {stop.routes && stop.routes.length > 0 && (
+            <div className="mb-3">
+              <div className="flex items-center gap-2 text-sm font-bold text-gray-900 mb-2">
+                <Place sx={{ fontSize: 16 }} className="text-emerald-700" />
+                이 정류장 노선
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {stop.routes.map((route) => (
+                  <span
+                    key={route}
+                    className="inline-flex items-center rounded-full bg-white px-3 py-1 text-[11px] font-semibold text-gray-700 shadow-sm"
+                  >
+                    {route}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="card-grad rounded-2xl p-4 shadow-sm">
+            {loading && (
+              <p className="text-sm text-gray-500 py-6 text-center">도착 정보를 불러오는 중…</p>
+            )}
+
+            {!loading && !board && (
+              <p className="text-sm text-gray-500 py-6 text-center">
+                도착 정보를 불러올 수 없어요.
+              </p>
+            )}
+
+            {!loading && board && arrivals.length === 0 && (
+              <p className="text-sm text-gray-500 py-6 text-center">
+                현재 도착 예정 버스가 없어요.
+              </p>
+            )}
+
+            {!loading && board && arrivals.length > 0 && (
+              <div className="max-h-[72vh] overflow-y-auto">
+                <ul className="divide-y divide-gray-100">
+                  {arrivals.map((item, idx) => {
+                    const arrival = formatStopArrival(item);
+                    const matchedBus = findBus(item);
+                    const routeStops = routeDetails[item.stdid]?.stops ?? [];
+                    const liveBus =
+                      liveBuses[item.stdid]?.find((bus) => bus.brt_no === item.brt_no) ?? null;
+                    const progressLabel = getStopProgressLabel(item, board?.stop_id || stop.stop_id, routeStops, liveBus);
+                    return (
+                      <li key={`${item.brt_no}-${item.stdid}-${idx}`}>
+                        <button
+                          type="button"
+                          onClick={() => matchedBus && onSelectBus(matchedBus)}
+                          className="w-full py-3 flex items-center gap-3 text-left active:bg-gray-50"
+                        >
+                          <span className="inline-flex items-center justify-center min-w-12 px-2.5 h-8 rounded-full bg-emerald-700 text-white text-sm font-bold">
+                            {item.brt_no}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-semibold text-emerald-800">{arrival.lead}</p>
+                            <p className="text-[11px] text-gray-500 mt-0.5">{arrival.trail}</p>
+                          </div>
+                          <div className="min-w-0 text-right">
+                            <p className="text-[11px] font-semibold text-gray-700 truncate">
+                              {progressLabel || '진행 정보 없음'}
+                            </p>
+                          </div>
+                          <DirectionsBus sx={{ fontSize: 18 }} className="text-gray-300 shrink-0" />
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -867,7 +1610,6 @@ export function BusDetailView({ bus, isFavorite, onBack, onToggleFavorite }: Bus
             <div className="flex items-center gap-1.5 text-sm font-bold text-gray-900 mb-3">
               <Place sx={{ fontSize: 16 }} className="text-emerald-700" />
               정류장 노선
-              <span className="text-xs text-gray-500 font-normal">· {stops.length}개</span>
             </div>
             <ol className="relative">
               {stops.map((stop, i) => {
