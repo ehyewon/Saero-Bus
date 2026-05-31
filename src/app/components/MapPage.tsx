@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowBack, MyLocation } from '@mui/icons-material';
+import { ArrowBack, MyLocation, DirectionsBus } from '@mui/icons-material';
 import { loadNaverMaps } from '../lib/naverMaps';
-import { blogApi, type StopSummary } from '../lib/blogApi';
+import { blogApi, type StopSummary, type ArrivalBoard, type ArrivalItem } from '../lib/blogApi';
 
 const goHub = () =>
   window.dispatchEvent(new CustomEvent('switchTab', { detail: 0 }));
@@ -51,6 +51,8 @@ export function MapPage() {
 
   const [userPos, setUserPos] = useState<{ lat: number; lng: number } | null>(null);
   const [selectedStop, setSelectedStop] = useState<StopSummary | null>(null);
+  const [arrivalBoard, setArrivalBoard] = useState<ArrivalBoard | null>(null);
+  const [arrivalLoading, setArrivalLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -159,6 +161,31 @@ export function MapPage() {
     };
   }, [userPos]);
 
+  useEffect(() => {
+    if (!selectedStop) {
+      setArrivalBoard(null);
+      setArrivalLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setArrivalLoading(true);
+    setArrivalBoard(null);
+    blogApi
+      .getStopArrivals(selectedStop.stop_id)
+      .then((board) => {
+        if (!cancelled) setArrivalBoard(board);
+      })
+      .catch(() => {
+        /* swallow — UI shows "정보를 불러올 수 없어요" */
+      })
+      .finally(() => {
+        if (!cancelled) setArrivalLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedStop]);
+
   const handleCenterOnUser = () => {
     if (!mapRef.current || !userPos) return;
     if (!('geolocation' in navigator)) return;
@@ -220,19 +247,12 @@ export function MapPage() {
         )}
 
         {selectedStop && (
-          <div className="absolute left-1/2 -translate-x-1/2 top-4 z-20 bg-white rounded-full pl-4 pr-2 py-2 shadow-md flex items-center gap-2 max-w-[90%]">
-            <span className="text-sm font-bold text-gray-900 truncate">
-              {selectedStop.stop_name}
-            </span>
-            <button
-              type="button"
-              onClick={() => setSelectedStop(null)}
-              className="w-6 h-6 rounded-full bg-gray-100 text-gray-500 text-xs leading-none"
-              aria-label="닫기"
-            >
-              ×
-            </button>
-          </div>
+          <StopDetailSheet
+            stop={selectedStop}
+            board={arrivalBoard}
+            loading={arrivalLoading}
+            onClose={() => setSelectedStop(null)}
+          />
         )}
 
         <button
@@ -244,6 +264,85 @@ export function MapPage() {
           <MyLocation />
         </button>
       </div>
+      </div>
+    </div>
+  );
+}
+
+function formatEta(item: ArrivalItem): string {
+  if (typeof item.eta_sec === 'number' && item.eta_sec >= 0) {
+    if (item.eta_sec < 60) return '곧 도착';
+    return `${Math.round(item.eta_sec / 60)}분 뒤`;
+  }
+  if (typeof item.stops_away === 'number') {
+    if (item.stops_away === 0) return '곧 도착';
+    return `${item.stops_away}정거장 전`;
+  }
+  return '정보 없음';
+}
+
+interface StopDetailSheetProps {
+  stop: StopSummary;
+  board: ArrivalBoard | null;
+  loading: boolean;
+  onClose: () => void;
+}
+
+function StopDetailSheet({ stop, board, loading, onClose }: StopDetailSheetProps) {
+  return (
+    <div className="absolute left-0 right-0 bottom-0 z-20 bg-white rounded-t-2xl shadow-2xl max-h-[55%] flex flex-col">
+      <div className="flex items-start justify-between px-5 pt-4 pb-3 border-b border-gray-100">
+        <div className="min-w-0 flex-1 pr-3">
+          <h2 className="text-base font-extrabold text-gray-900 truncate">{stop.stop_name}</h2>
+          <p className="text-[11px] text-gray-500 mt-0.5">정류장 ID · {stop.stop_id}</p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-8 h-8 rounded-full bg-gray-100 text-gray-500 flex items-center justify-center shrink-0"
+          aria-label="닫기"
+        >
+          ×
+        </button>
+      </div>
+
+      <div className="overflow-y-auto flex-1 px-5 py-3">
+        {loading && (
+          <p className="text-sm text-gray-500 py-6 text-center">도착 정보를 불러오는 중…</p>
+        )}
+
+        {!loading && !board && (
+          <p className="text-sm text-gray-500 py-6 text-center">
+            도착 정보를 불러올 수 없어요.
+          </p>
+        )}
+
+        {!loading && board && board.arrivals.length === 0 && (
+          <p className="text-sm text-gray-500 py-6 text-center">
+            현재 도착 예정 버스가 없어요.
+          </p>
+        )}
+
+        {!loading && board && board.arrivals.length > 0 && (
+          <ul className="divide-y divide-gray-100">
+            {board.arrivals.map((item, idx) => (
+              <li key={`${item.brt_no}-${item.stdid}-${idx}`} className="py-3 flex items-center gap-3">
+                <span className="inline-flex items-center justify-center min-w-12 px-2.5 h-8 rounded-full bg-emerald-700 text-white text-sm font-bold">
+                  {item.brt_no}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-emerald-800">{formatEta(item)}</p>
+                  {typeof item.stops_away === 'number' && typeof item.eta_sec === 'number' && (
+                    <p className="text-[11px] text-gray-500 mt-0.5">
+                      {item.stops_away}정거장 전
+                    </p>
+                  )}
+                </div>
+                <DirectionsBus sx={{ fontSize: 18 }} className="text-gray-300 shrink-0" />
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );
