@@ -19,7 +19,8 @@ import { MOCK_NOW_TOTAL_MIN, fmt } from './ActiveTripCard';
 import { saveActiveTrip, clearActiveTrip, loadActiveTrip } from '../lib/activeTrip';
 import { type PlaceSearchResult } from '../lib/placeSearch';
 import { PlacePickerPage } from './PlacePickerPage';
-import { blogApi, type LatLng, type PlanResponse } from '../lib/blogApi';
+import { blogApi, type LatLng, type PlanResponse, type RouteDetailResponse } from '../lib/blogApi';
+import { haversineMeters } from './BusPage';
 
 interface HomePageProps {
   onBack?: () => void;
@@ -176,7 +177,20 @@ export function HomePage({ onBack }: HomePageProps = {}) {
     const candidateRoutes =
       sharedRouteNos.size > 0
         ? routes.filter((route) => sharedRouteNos.has(route.brt_no))
-        : routes.slice(0, 80);
+        : routes;
+
+    const nearestStopByPoint = (stops: { stop_ord: number; stop_id: number; stop_name: string; lat: number; lng: number }[], point: LatLng) => {
+      let bestStop = null as (typeof stops)[number] | null;
+      let bestDistance = Infinity;
+      stops.forEach((stop) => {
+        const meters = haversineMeters(point, { lat: stop.lat, lon: stop.lng });
+        if (meters < bestDistance) {
+          bestDistance = meters;
+          bestStop = stop;
+        }
+      });
+      return bestStop;
+    };
 
     await Promise.all(
       candidateRoutes.slice(0, 80).map(async (route) => {
@@ -190,26 +204,62 @@ export function HomePage({ onBack }: HomePageProps = {}) {
           .map(clockToMinutes)
           .filter((value): value is number => value !== null);
         let boardStopName = route.start_name || '승차 정류장';
-        let alightStopName = route.end_name || '하차정류장';
+        let alightStopName = route.end_name || '하차 정류장';
         let routeStopPair: { boardOrd: number; alightOrd: number } | null = null;
-        if (originStopIds.size > 0 && destinationStopIds.size > 0) {
-          try {
-            const detail = await blogApi.getRoute(route.stdid);
-            const boardCandidates = detail.stops.filter((stop) => originStopIds.has(stop.stop_id));
-            const alightCandidates = detail.stops.filter((stop) => destinationStopIds.has(stop.stop_id));
-            for (const board of boardCandidates) {
-              const alight = alightCandidates.find((stop) => stop.stop_ord > board.stop_ord);
-              if (alight) {
-                routeStopPair = { boardOrd: board.stop_ord, alightOrd: alight.stop_ord };
-                boardStopName = board.stop_name;
-                alightStopName = alight.stop_name;
-                break;
+        let detailStops: RouteDetailResponse['stops'] = [];
+        try {
+          const detail = await blogApi.getRoute(route.stdid);
+          detailStops = detail.stops;
+
+          const boardCandidates = originStopIds.size > 0
+            ? detail.stops.filter((stop) => originStopIds.has(stop.stop_id))
+            : [];
+          const alightCandidates = destinationStopIds.size > 0
+            ? detail.stops.filter((stop) => destinationStopIds.has(stop.stop_id))
+            : [];
+
+          for (const board of boardCandidates) {
+            const alight = alightCandidates.find((stop) => stop.stop_ord > board.stop_ord);
+            if (alight) {
+              routeStopPair = { boardOrd: board.stop_ord, alightOrd: alight.stop_ord };
+              boardStopName = board.stop_name;
+              alightStopName = alight.stop_name;
+              break;
+            }
+          }
+
+          if (!routeStopPair && detailStops.length > 0) {
+            const boardNear = nearestStopByPoint(detailStops, originPoint);
+            if (boardNear) {
+              const alightNear =
+                destinationPoint &&
+                detailStops.find(
+                  (stop) => stop.stop_ord > boardNear.stop_ord && haversineMeters(destinationPoint, { lat: stop.lat, lon: stop.lng }) < 1200,
+                );
+              const fallbackAlight =
+                alightNear ??
+                detailStops.find((stop) => stop.stop_ord > boardNear.stop_ord) ??
+                detailStops[detailStops.length - 1];
+              if (fallbackAlight && fallbackAlight.stop_ord > boardNear.stop_ord) {
+                routeStopPair = { boardOrd: boardNear.stop_ord, alightOrd: fallbackAlight.stop_ord };
+                boardStopName = boardNear.stop_name;
+                alightStopName = fallbackAlight.stop_name;
               }
             }
-            if (!routeStopPair) return;
-          } catch {
-            return;
           }
+          if (!routeStopPair && detailStops.length > 0) {
+            const boardNear = nearestStopByPoint(detailStops, originPoint);
+            const alightNear =
+              destinationPoint &&
+              nearestStopByPoint(detailStops.filter((stop) => boardNear ? stop.stop_ord > boardNear.stop_ord : true), destinationPoint);
+            if (boardNear && alightNear && alightNear.stop_ord > boardNear.stop_ord) {
+              routeStopPair = { boardOrd: boardNear.stop_ord, alightOrd: alightNear.stop_ord };
+              boardStopName = boardNear.stop_name;
+              alightStopName = alightNear.stop_name;
+            }
+          }
+        } catch {
+          detailStops = [];
         }
 
         await Promise.all(minutes.map(async (departMin) => {
@@ -324,7 +374,7 @@ export function HomePage({ onBack }: HomePageProps = {}) {
     };
   };
 
-  const getServiceAvailability = async (busNo?: string | null, maxWaitMin = 60) => {
+  const getServiceAvailability = async (busNo?: string | null) => {
     const routes = await blogApi.listRoutes();
     const scopedRoutes = busNo ? routes.filter((route) => route.brt_no === busNo) : routes;
     const now = new Date();
@@ -348,8 +398,7 @@ export function HomePage({ onBack }: HomePageProps = {}) {
 
         minutes.forEach((total) => {
           firstBusMin = firstBusMin === null ? total : Math.min(firstBusMin, total);
-          const waitMin = total - nowMin;
-          if (waitMin >= 0 && waitMin <= maxWaitMin) {
+          if (total >= nowMin) {
             hasRemaining = true;
           }
         });
@@ -360,10 +409,10 @@ export function HomePage({ onBack }: HomePageProps = {}) {
           if (first !== null) {
             firstBusMin = firstBusMin === null ? first : Math.min(firstBusMin, first);
           }
-          if (last !== null && last >= nowMin && last - nowMin <= maxWaitMin) {
-          hasRemaining = true;
+          if (last !== null && last >= nowMin) {
+            hasRemaining = true;
+          }
         }
-      }
       }),
     );
     return {
@@ -415,7 +464,7 @@ export function HomePage({ onBack }: HomePageProps = {}) {
       }
       const plannedBusNo = plan?.recommended.legs.find((leg) => leg.mode === 'bus')?.brt_no;
       if (mode === 'depart') {
-        const service = await getServiceAvailability(plannedBusNo, 60);
+        const service = await getServiceAvailability(plannedBusNo);
         nextFirst = service.nextFirstBusTime;
         nextFirstLabel = service.nextFirstBusLabel;
         if (!service.hasRemaining) {
