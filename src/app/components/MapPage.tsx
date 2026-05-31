@@ -254,10 +254,16 @@ export function MapPage() {
     );
   };
 
-  if (selectedBus) {
-    const isFav = busFavorites.some((f) => f.number === selectedBus.number);
-    return (
-      <>
+  const isFav = selectedBus
+    ? busFavorites.some((f) => f.number === selectedBus.number)
+    : false;
+
+  return (
+    <>
+    {/* BusDetailView opens on top so the map div stays mounted underneath —
+        unmounting it would orphan mapRef and the map fails to re-init on return. */}
+    {selectedBus && (
+      <div className="fixed inset-0 z-40 bg-white overflow-auto">
         <BusDetailView
           key={`${selectedBus.stdid ?? selectedBus.number}-${busRefreshKey}`}
           bus={selectedBus}
@@ -268,16 +274,14 @@ export function MapPage() {
         <button
           type="button"
           onClick={handleBusRefresh}
-          className="fixed bottom-6 right-6 z-30 w-12 h-12 rounded-full bg-emerald-700 text-white shadow-lg flex items-center justify-center active:scale-95 transition"
+          className="fixed bottom-6 right-6 z-50 w-12 h-12 rounded-full bg-emerald-700 text-white shadow-lg flex items-center justify-center active:scale-95 transition"
           aria-label="새로고침"
         >
           <Refresh sx={{ fontSize: 22 }} className={busRefreshSpinning ? 'animate-spin' : ''} />
         </button>
-      </>
-    );
-  }
+      </div>
+    )}
 
-  return (
     <div className="h-screen w-full bg-[#EAF4F0]">
       <div className="max-w-md mx-auto h-full flex flex-col">
       <div className="px-4 pt-2 pb-3 flex items-center gap-3 shrink-0">
@@ -331,6 +335,7 @@ export function MapPage() {
       </div>
       </div>
     </div>
+    </>
   );
 }
 
